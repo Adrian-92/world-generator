@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://clr2vovycs7jc"]
 
-[ext_resource type="Script" uid="uid://dcpqrt5587usq" path="res://scripts/PhysicsHandler.cs" id="1_rimst"]
+[ext_resource type="Script" uid="uid://dcpqrt5587usq" path="res://scripts/physics/PhysicsHandler.cs" id="1_rimst"]
 
 [node name="PhysicsHandler" type="Node"]
 script = ExtResource("1_rimst")

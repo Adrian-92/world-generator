@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using static GlobalConstants;
 
 public partial class WorldGenerator : Node
 {
@@ -19,9 +20,9 @@ public partial class WorldGenerator : Node
 
 	public void SetupNoise(int mapSeed, float noiseFrequency) {
 		_tempNoise.Seed = mapSeed;
-		_tempNoise.Frequency = 0.005f;
+		_tempNoise.Frequency = 0.0005f;
 		_moistureNoise.Seed = mapSeed + 123;
-		_moistureNoise.Frequency = 0.005f;
+		_moistureNoise.Frequency = 0.0005f;
 
 		_noise.Seed = mapSeed;
 		_noise.NoiseType = FastNoiseLite.NoiseTypeEnum.Perlin;
@@ -69,16 +70,19 @@ public partial class WorldGenerator : Node
 
 	public int GetSurfaceHeight(int worldX) {
 	float n = (_noise.GetNoise1D(worldX) + 1.0f) / 2.0f;
-	return (int)(n * 30 + 20); 
+	return (int)(n * 30); 
 }
 
-	public string GetBiomeAt(int x, int y) {
-		float temp = _tempNoise.GetNoise2D(x, y);
-		float moisture = _moistureNoise.GetNoise2D(x, y);
+	public Biome GetBiomeAt(int x, int y) {
+		float temp = _tempNoise.GetNoise2D(x, y * 0.25f);
+	float moisture = _moistureNoise.GetNoise2D(x, y * 0.25f);
+		
+		if (y > MapHeight * 0.7f) return Biome.CAVE;
+		
 		if (temp > 0.2f) {
-			return moisture > 0.2f ? "Dschungel" : "Wüste";
+			return moisture > 0.0f ? Biome.FOREST : Biome.DESERT;
 		} else {
-			return moisture > 0.2f ? "Tundra" : "Eiswüste";
+			return moisture > 0.0f ? Biome.TUNDRA : Biome.ICE;
 		}
 	}
 
@@ -93,7 +97,7 @@ public partial class WorldGenerator : Node
 
 	public OreParams GetOreParameters(int x, int y) {
 		float depthPerc = (float)y / MapHeight;
-		string biome = GetBiomeAt(x, y);
+		Biome biome = GetBiomeAt(x, y);
 		
 		OreParams p = new OreParams {
 			AtlasCoords = new Vector2I(7, 0),
@@ -106,9 +110,22 @@ public partial class WorldGenerator : Node
 		
 		float variation = _noise.GetNoise2D(x * 0.1f, y * 0.1f) * 0.05f;
 		float modifiedDepth = depthPerc + variation;
-
-		if (biome == "Wüste") {
-			p.Threshold += 0.1f;
+		
+		switch(biome){
+			case Biome.FOREST:
+				p.Threshold -= 0.1f;
+				break;
+			case Biome.DESERT:
+				p.Threshold += 0.2f;
+				break;
+			case Biome.ICE:
+				p.Threshold += 0.3f;
+				break;
+			case Biome.TUNDRA:
+				p.Threshold -= 0.2f;
+				break;
+			default:
+				break;
 		}
 
 		if (modifiedDepth > 0.8f) { // Diamant
@@ -142,8 +159,22 @@ public partial class WorldGenerator : Node
 		return p;
 	}
 
-	public int GetOreOrStone(int x, int y, int surfaceY, string biome) {
+	public int GetOreOrStone(int x, int y, int surfaceY, Biome biome) {
 		OreParams p = GetOreParameters(x, y);		
+		
+		switch(biome) {
+			case Biome.FOREST:
+				break;
+			case Biome.DESERT:
+				break;
+			case Biome.ICE:
+				break;
+			case Biome.TUNDRA:
+				break;
+			default:
+				break;
+		}
+		
 		float oreX = x * p.ScaleX;
 		float oreY = y * p.ScaleY;
 		float veinValue = _oreNoise.GetNoise2D(oreX, oreY);
@@ -177,7 +208,7 @@ public partial class WorldGenerator : Node
 	public int GenerateTile(int x, int y, int surfaceY) {
 		if (y < surfaceY) return -1; // -1 = Luft
 
-		string biome = GetBiomeAt(x, y);
+		Biome biome = GetBiomeAt(x, y);
 
 		if (IsCave(x, y, biome)) {
 			if (ShouldGenerateWater(x, y, surfaceY, biome)) {
@@ -191,19 +222,58 @@ public partial class WorldGenerator : Node
 		return GetOreOrStone(x, y, surfaceY, biome);
 	}
 
-	public bool IsCave(int x, int y, string biome) {
+	public bool IsCave(int x, int y, Biome biome) {
 		float caveValue = _caveNoise.GetNoise2D(x, y);
 		float caveClusterValue = _caveClusterMask.GetNoise2D(x, y);
-		float threshold = 0.03f;
+		float threshold;
 		
-		if (biome == "Dschungel") threshold = 0.08f;
-		else if (biome == "Wüste") threshold = 0.02f;
+		switch(biome) {
+			case Biome.FOREST:
+				threshold = 0.1f;
+				break;
+			case Biome.DESERT:
+				threshold = 0.02f;
+				break;
+			case Biome.ICE:
+				threshold = 0.15f;
+				break;
+			case Biome.TUNDRA:
+				threshold = 0.02f;
+				break;
+			default:
+				threshold = 0.03f;
+				break;
+		}
 
 		return Math.Abs(caveValue) < threshold && caveClusterValue > 0.0f;
 	}
 
-	public bool ShouldGenerateWater(int x, int y, int surfaceY, string biome) {
-		int minDepth = (biome == "Wüste") ? 100 : 20;
+	public bool ShouldGenerateWater(int x, int y, int surfaceY, Biome biome) {
+		int minDepth;
+		float biomeBonus;
+		switch(biome) {
+			case Biome.FOREST:
+				minDepth = 0;
+				biomeBonus = 0f;
+				break;
+			case Biome.DESERT:
+				minDepth = 100;
+				biomeBonus = -0.1f;
+				break;
+			case Biome.ICE:
+				minDepth = 10;
+				biomeBonus = 0f;
+				break;
+			case Biome.TUNDRA:
+				minDepth = 0;
+				biomeBonus = 0.2f;
+				break;
+			default:
+				minDepth = 20;
+				biomeBonus = 0f;
+				break;
+		}
+		
 		if (y < surfaceY + minDepth) return false;
 
 		float waterValue = _waterNoise.GetNoise2D(x, y);
@@ -211,7 +281,6 @@ public partial class WorldGenerator : Node
 		
 		float relativeDepth = (float)(y - surfaceY) / (MapHeight - surfaceY);
 		float noiseInfluence = 0.5f;
-		float biomeBonus = (biome == "Dschungel") ? 0.2f : 0.0f;
 		
 		float finalValue = relativeDepth + (waterValue * noiseInfluence) - biomeBonus;
 

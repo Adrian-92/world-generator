@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3 uid="uid://dwg250o5k6a4l"]
 
-[ext_resource type="Script" uid="uid://cs4r52ydeylhb" path="res://scripts/WorldGenerator.cs" id="1_yncnp"]
+[ext_resource type="Script" uid="uid://cs4r52ydeylhb" path="res://scripts/worldgeneration/WorldGenerator.cs" id="1_yncnp"]
 
 [node name="WorldGenerator" type="Node2D"]
 script = ExtResource("1_yncnp")

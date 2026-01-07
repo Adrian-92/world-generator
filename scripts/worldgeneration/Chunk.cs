@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using static GlobalConstants;
 
 public class Chunk {
 	public const int Size = 32;
@@ -8,7 +9,7 @@ public class Chunk {
 	public Vector2I ChunkPos;
 	public bool IsDirty;
 	public bool IsActive; 
-	public string Biome;
+	public Biome Biome;
 	
 	public Chunk(Vector2I pos, WorldGenerator gen) {
 		ChunkPos = pos;
@@ -17,7 +18,7 @@ public class Chunk {
 			Biome = gen.GetBiomeAt(pos.X * Size + Size/2, pos.Y * Size + Size/2);
 		} else {
 			GD.PrintErr("FEHLER: Chunk wurde ein null-Generator übergeben!");
-			Biome = "Default";
+			Biome = Biome.FOREST;
 		}
 	}
 	

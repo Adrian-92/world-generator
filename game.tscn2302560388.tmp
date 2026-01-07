@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3 uid="uid://rqd0hosn31go"]
+[gd_scene load_steps=15 format=3 uid="uid://rqd0hosn31go"]
 
 [ext_resource type="PackedScene" uid="uid://cemrxaidpfiy7" path="res://player.tscn" id="1_80nbo"]
 [ext_resource type="Script" uid="uid://bpuygsuu7nvpx" path="res://game.gd" id="1_fc0e3"]
@@ -9,7 +9,6 @@
 [ext_resource type="Texture2D" uid="uid://t6tngsu71tai" path="res://tiles/water_tile_sheet.png" id="8_mfdv2"]
 [ext_resource type="PackedScene" uid="uid://dwg250o5k6a4l" path="res://world_generator.tscn" id="8_vef74"]
 [ext_resource type="Script" uid="uid://blonk3c1t1dgr" path="res://interaction_controller.gd" id="9_vef74"]
-[ext_resource type="Script" uid="uid://c526inxvhobib" path="res://scripts/debug_info.gd" id="10_hve3p"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_iotsf"]
 texture = ExtResource("5_j5wjh")
@@ -1007,8 +1006,4 @@ text = "Debug Window"
 [node name="InteractionController" type="Node2D" parent="."]
 script = ExtResource("9_vef74")
 
-[node name="DebugInfo" type="Node" parent="."]
-script = ExtResource("10_hve3p")
-
-[connection signal="mouse_screen_pos_changed" from="InteractionController" to="DebugInfo" method="_mouse_screen_pos_changed"]
-[connection signal="mouse_tile_changed" from="InteractionController" to="DebugInfo" method="_mouse_tile_changed"]
+[connection signal="mouse_tile_changed" from="InteractionController" to="." method="_on_mouse_tile_changed"]

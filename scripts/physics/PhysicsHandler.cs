@@ -1,18 +1,22 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using static GlobalConstants;
 
 public partial class PhysicsHandler : Node
 {
 	[Export] public WorldGenerator Generator;
 	[Export] public TileMapLayer TargetLayer;
-	[Export] public double TickRate = 0.5;
+	[Export] public double TickRate = 0.1;
+	[Export] public double CleanupRate = 5;
 	[Export] public int SimulationRadius = 5;
 	[Export] public int UnloadRadius = 10;
 	
 	private System.Random _rng = new System.Random();
 	private double _timer = 0;
 	private double _cleanupTimer = 0;
+
+	
 	private Dictionary<Vector2I, Chunk> _chunks = new Dictionary<Vector2I, Chunk>();
 	private Dictionary<Vector2I, int[,]> _chunkCache = new Dictionary<Vector2I, int[,]>();
 	
@@ -232,15 +236,17 @@ public override void _Ready()
 		var camera = GetViewport().GetCamera2D();
 		if (camera != null)
 		{
-		// Lädt Chunks um die Kameraposition herum
 		UpdateChunksAround(camera.GlobalPosition);
 		}
-		
-		
+		_cleanupTimer += delta;
 		_timer += delta;
 		if(_timer >= TickRate) {
 			SimulateStep();
 			_timer = 0;
+		}
+		if(_cleanupTimer > CleanupRate){
+			UnloadFarChunks(camera.GlobalPosition);
+			_cleanupTimer = 0;
 		}
 	}
 }
