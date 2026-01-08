@@ -7,19 +7,18 @@ public partial class PhysicsHandler : Node
 {
 	[Export] public WorldGenerator Generator;
 	[Export] public TileMapLayer TargetLayer;
-	[Export] public double TickRate = 0.1;
+	[Export] public double TickRate = 0.5;
 	[Export] public double CleanupRate = 5;
 	[Export] public int SimulationRadius = 5;
 	[Export] public int UnloadRadius = 10;
-	
+	private int airTileID = 999;
 	private System.Random _rng = new System.Random();
 	private double _timer = 0;
 	private double _cleanupTimer = 0;
 
-	
+	private List<Vector2I> _activeBuffer = new List<Vector2I>();
 	private Dictionary<Vector2I, Chunk> _chunks = new Dictionary<Vector2I, Chunk>();
 	private Dictionary<Vector2I, int[,]> _chunkCache = new Dictionary<Vector2I, int[,]>();
-	
 	private Dictionary<int, Vector2I> _idToAtlas = new Dictionary<int, Vector2I>() {
 	{ 0, new Vector2I(0, 0) },  // Gras (Hellgrün)
 	{ 1, new Vector2I(1, 0) },  // Erde
@@ -59,8 +58,6 @@ public void UpdateChunksAround(Vector2 worldPos) {
 						GenerateChunk(targetCPos);
 						currentGens++;
 
-						// WICHTIG: Wenn wir unser Limit erreicht haben, 
-						// beenden wir die Funktion für DIESEN Frame.
 						if (currentGens >= maxGensThisFrame) return;
 					}
 				}
@@ -70,7 +67,6 @@ public void UpdateChunksAround(Vector2 worldPos) {
 }
 
 	private void GenerateChunk(Vector2I cPos) {
-		GD.Print($"Lade Chunk: {cPos}");
 		Chunk newChunk = new Chunk(cPos, Generator);
 		if (_chunkCache.ContainsKey(cPos)) {
 			newChunk.Grid = (int[,])_chunkCache[cPos].Clone();
@@ -84,11 +80,16 @@ public void UpdateChunksAround(Vector2 worldPos) {
 					int worldY = cPos.Y * Chunk.Size + y;
 					int tileID = Generator.GenerateTile(worldX, worldY, surfaceY);
 					
-					newChunk.Grid[x, y] = (tileID == -1) ? 999 : tileID;
+					int finalID = newChunk.Grid[x, y] = (tileID == -1) ? airTileID : tileID;
+					
+					if (finalID == 2 || finalID == 3) {
+					newChunk.ActiveTiles.Add(new Vector2I(x, y));
+					}
 				}
 			}
 		}
 		_chunks.Add(cPos, newChunk);
+		
 		DrawChunk(newChunk);
 	}
 
@@ -129,41 +130,44 @@ public void UpdateChunksAround(Vector2 worldPos) {
 			_chunks.Remove(cPos);
 			}
 		}
+public void SimulateStep() {
+	foreach (var chunk in _chunks.Values) {
+		if (chunk.ActiveTiles.Count == 0) continue;
 
-	public void SimulateStep() {
-		foreach (var chunk in _chunks.Values) {
-			for (int x = 0; x < Chunk.Size; x++) {
-				for (int y = Chunk.Size - 1; y >= 0; y--) {
-					int current = chunk.Grid[x, y];
-					
-					// Nur Wasser (2) oder Lava (3) simulieren
-					if (current != 2 && current != 3) continue;
+		_activeBuffer.Clear();
+		_activeBuffer.AddRange(chunk.ActiveTiles);
+		chunk.ActiveTiles.Clear();
 
-					int worldX = chunk.ChunkPos.X * Chunk.Size + x;
-					int worldY = chunk.ChunkPos.Y * Chunk.Size + y;
+		foreach (var localPos in _activeBuffer) {
+			int x = localPos.X;
+			int y = localPos.Y;
+			int current = chunk.Grid[x, y];
+			
+			if (current != 2 && current != 3) continue;
 
-					// 1. Check: Kann es nach unten fallen?
-					if (GetTile(worldX, worldY + 1) == 999) {
-						SetTile(worldX, worldY, 999);
-						SetTile(worldX, worldY + 1, current);
-					} 
-					else {
-						int sideDir = _rng.Next(2) == 0 ? 1 : -1;
-						
-						if (GetTile(worldX + sideDir, worldY) == 999) {
-							SetTile(worldX, worldY, 999);
-							SetTile(worldX + sideDir, worldY, current);
-						}
-						else if (GetTile(worldX - sideDir, worldY) == 999) {
-							SetTile(worldX, worldY, 999);
-							SetTile(worldX - sideDir, worldY, current);
-						}
-					}
+			int worldX = chunk.ChunkPos.X * Chunk.Size + x;
+			int worldY = chunk.ChunkPos.Y * Chunk.Size + y;
+
+
+			if (GetTile(worldX, worldY + 1) == airTileID) {
+				SetTile(worldX, worldY, airTileID);
+				SetTile(worldX, worldY + 1, current);
+			} 
+			else {
+				int sideDir = _rng.Next(2) == 0 ? 1 : -1;
+				if (GetTile(worldX + sideDir, worldY) == airTileID) {
+					SetTile(worldX, worldY, airTileID);
+					SetTile(worldX + sideDir, worldY, current);
 				}
+				else if (GetTile(worldX - sideDir, worldY) == airTileID) {
+					SetTile(worldX, worldY, airTileID);
+					SetTile(worldX - sideDir, worldY, current);
+				}
+
 			}
-			if (chunk.IsDirty) DrawChunk(chunk);
 		}
 	}
+}
 
 	public int GetTile(int x, int y) {
 		Vector2I cPos = new Vector2I(
@@ -181,32 +185,63 @@ public void UpdateChunksAround(Vector2 worldPos) {
 		return chunk.Grid[localX, localY];
 }
 
-	public void SetTile(int x, int y, int value) {
-		Vector2I cPos = new Vector2I(Mathf.FloorToInt((float)x / Chunk.Size), Mathf.FloorToInt((float)y / Chunk.Size));
-		if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return;
+public void SetTile(int x, int y, int value) {
+	Vector2I cPos = new Vector2I(Mathf.FloorToInt((float)x / Chunk.Size), Mathf.FloorToInt((float)y / Chunk.Size));
+	if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return;
 
-		int localX = (x % Chunk.Size + Chunk.Size) % Chunk.Size;
-		int localY = (y % Chunk.Size + Chunk.Size) % Chunk.Size;
+	int localX = (x % Chunk.Size + Chunk.Size) % Chunk.Size;
+	int localY = (y % Chunk.Size + Chunk.Size) % Chunk.Size;
 
-		if (chunk.Grid[localX, localY] != value) {
-			chunk.Grid[localX, localY] = value;
-			chunk.IsDirty = true;
-			UpdateTileVisual(new Vector2I(x, y), value);
+	if (chunk.Grid[localX, localY] != value) {
+		chunk.Grid[localX, localY] = value;
+		chunk.IsDirty = true;
+		if (value == airTileID) {
+			WakeUpNeighbors(x, y);
 		}
-	}
+		else if (value == 2 || value == 3) {
+			chunk.ActiveTiles.Add(new Vector2I(localX, localY));
+		}
 
-	private void DrawChunk(Chunk chunk) {
-		for (int x = 0; x < Chunk.Size; x++) {
-			for (int y = 0; y < Chunk.Size; y++) {
-				Vector2I worldPos = new Vector2I(chunk.ChunkPos.X * Chunk.Size + x, chunk.ChunkPos.Y * Chunk.Size + y);
-				UpdateTileVisual(worldPos, chunk.Grid[x, y]);
+		UpdateTileVisual(new Vector2I(x, y), value);
+	}
+}
+
+	private void WakeUpNeighbors(int x, int y) {
+	int[] dx = { 0, 0, -1, 1, 0 };
+	int[] dy = { -1, 1, 0, 0, 0 }; 
+	for(int i = 0; i < 5; i++) {
+		ActivateTile(x + dx[i], y + dy[i]);
+	}
+}
+
+private void ActivateTile(int x, int y) {
+	Vector2I cPos = new Vector2I(Mathf.FloorToInt((float)x / Chunk.Size), Mathf.FloorToInt((float)y / Chunk.Size));
+	if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
+		int lx = (x % Chunk.Size + Chunk.Size) % Chunk.Size;
+		int ly = (y % Chunk.Size + Chunk.Size) % Chunk.Size;
+		int val = chunk.Grid[lx, ly];
+		if (val == 2 || val == 3) chunk.ActiveTiles.Add(new Vector2I(lx, ly));
+	}
+}
+
+private void DrawChunk(Chunk chunk) {
+	for (int x = 0; x < Chunk.Size; x++) {
+		for (int y = 0; y < Chunk.Size; y++) {
+			int val = chunk.Grid[x, y];
+			if (val != airTileID) {
+				Vector2I worldPos = new Vector2I(
+					chunk.ChunkPos.X * Chunk.Size + x, 
+					chunk.ChunkPos.Y * Chunk.Size + y
+				);
+				UpdateTileVisual(worldPos, val);
 			}
 		}
-		chunk.IsDirty = false;
 	}
+	chunk.IsDirty = false;
+}
 
 	private void UpdateTileVisual(Vector2I worldPos, int value) {
-		if (value == 999) TargetLayer.SetCell(worldPos, -1);
+		if (value == airTileID) TargetLayer.SetCell(worldPos, -1);
 		else if (_idToAtlas.ContainsKey(value)) TargetLayer.SetCell(worldPos, 1, _idToAtlas[value]);
 	}
 	

@@ -7,6 +7,7 @@ public class Chunk {
 	public const int Size = 32;
 	public int[,] Grid;
 	public Vector2I ChunkPos;
+	public HashSet<Vector2I> ActiveTiles = new HashSet<Vector2I>();
 	public bool IsDirty;
 	public bool IsActive; 
 	public Biome Biome;
