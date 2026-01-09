@@ -7,7 +7,8 @@ public static class GlobalConstants  {
 		DESERT,
 		ICE,
 		TUNDRA,
-		CAVE
+		CAVE,
+		LAVA
 	}
 	
 	public enum TileType {
@@ -18,6 +19,7 @@ public static class GlobalConstants  {
 		}
 		
 	public struct TileProperty {
+	public int AtlasID;
 	public Vector2I AtlasCoords;
 	public TileType Type;
 	public float Viscosity; 

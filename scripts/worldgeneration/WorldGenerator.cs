@@ -7,6 +7,7 @@ public partial class WorldGenerator : Node
 {
 
 	[Export] public int MapHeight = 256;
+	[Export] public int StartingAreaSize = 128;
 	private FastNoiseLite _tempNoise = new FastNoiseLite();
 	private FastNoiseLite _moistureNoise = new FastNoiseLite();
 
@@ -28,7 +29,7 @@ public partial class WorldGenerator : Node
 		_noise.NoiseType = FastNoiseLite.NoiseTypeEnum.Perlin;
 		_noise.Frequency = noiseFrequency;
 		_noise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
-		_noise.FractalOctaves = 4;
+		_noise.FractalOctaves = 2;
 		_noise.DomainWarpEnabled = false;
 		_noise.DomainWarpAmplitude = 20.0f;
 
@@ -43,11 +44,14 @@ public partial class WorldGenerator : Node
 
 		_caveNoise.Seed = mapSeed + 42069;
 		_caveNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.Perlin;
-		_caveNoise.Frequency = 0.015f;
+		// Weniger Frequenz = Längere, weitere Tunnel
+		_caveNoise.Frequency = 0.01f; 
 		_caveNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
-		_caveNoise.FractalOctaves = 5;
+		_caveNoise.FractalOctaves = 2; // Weniger Oktaven machen die Wände glatter
+
 		_caveNoise.DomainWarpEnabled = true;
-		_caveNoise.DomainWarpAmplitude = 3.0f;
+		_caveNoise.DomainWarpAmplitude = 30.0f;
+		_caveNoise.DomainWarpFrequency = 0.02f;
 
 		_caveClusterMask.Seed = mapSeed + 42;
 		_caveClusterMask.NoiseType = FastNoiseLite.NoiseTypeEnum.Perlin;
@@ -74,11 +78,13 @@ public partial class WorldGenerator : Node
 	}
 
 	public Biome GetBiomeAt(int x, int y) {
+		float boundaryWarp = _noise.GetNoise2D(x * 0.2f, y * 0.2f) * 24.0f;
+		float warpedX = x + boundaryWarp;
+		float depthWarp = _noise.GetNoise2D(x * 0.1f, y * 0.1f) * 10.0f;
+		if (y + depthWarp > MapHeight * 0.8f) return Biome.LAVA;
+		if (Math.Abs(warpedX) < StartingAreaSize) return Biome.FOREST;
 		float temp = _tempNoise.GetNoise2D(x, y * 0.25f);
 		float moisture = _moistureNoise.GetNoise2D(x, y * 0.25f);
-		
-		if (y > MapHeight * 0.7f) return Biome.CAVE;
-		
 		if (temp > 0.2f) {
 			return moisture > 0.0f ? Biome.FOREST : Biome.DESERT;
 		} else {
@@ -129,29 +135,29 @@ public partial class WorldGenerator : Node
 		}
 
 		if (modifiedDepth > 0.8f) { // Diamant
-			p.AtlasCoords = new Vector2I(10, 0);
+			p.AtlasCoords = new Vector2I(11, 0);
 			p.ScaleX = 2.0f; p.ScaleY = 2.0f;
 			p.Threshold = 0.9f;
 			p.ClusterThreshold = 0.5f;
 			p.SeedOffset = 5000;
 		}
 		else if (modifiedDepth > 0.55f) { // Gold
-			p.AtlasCoords = new Vector2I(9, 0);
+			p.AtlasCoords = new Vector2I(10, 0);
 			p.ScaleX = 2.5f; p.ScaleY = 0.3f;
 			p.Threshold = 0.85f;
 			p.ClusterThreshold = 0.4f;
 			p.SeedOffset = 2500;
 		}
 		else if (modifiedDepth > 0.4f) { // Eisen
-			p.AtlasCoords = new Vector2I(8, 0);
+			p.AtlasCoords = new Vector2I(9, 0);
 			p.ScaleX = 0.8f; p.ScaleY = 0.8f;
 			p.Threshold = 0.6f;
 			p.ClusterThreshold = 0.25f;
 			p.SeedOffset = 1000;
 		}
 		else { // Kohle
-			p.AtlasCoords = new Vector2I(7, 0);
-			p.ScaleX = 0.2f; p.ScaleY = 3.0f;
+			p.AtlasCoords = new Vector2I(8, 0);
+			p.ScaleX = 0.1f; p.ScaleY = 2.5f;
 			p.Threshold = 0.5f;
 			p.ClusterThreshold = 0.15f;
 			p.SeedOffset = 0;
@@ -174,7 +180,7 @@ public partial class WorldGenerator : Node
 			default:
 				break;
 		}
-		
+			
 		float oreX = x * p.ScaleX;
 		float oreY = y * p.ScaleY;
 		float veinValue = _oreNoise.GetNoise2D(oreX, oreY);
@@ -189,63 +195,99 @@ public partial class WorldGenerator : Node
 		float layerNoise = _noise.GetNoise2D(x * 0.5f, y * 0.5f) * 0.1f;
 		float noisyDepth = depthPerc + layerNoise;
 		if (noisyDepth < 0.35f) {
-		return 1; // Erde (ID 1)
+		return 1; // Erde
 		} 
 		else if (noisyDepth < 0.55f) {
-			return 4; // Dunkle Erde (ID 4)
+			return 5; // Dunkle Erde 
 		} 
-		else if (noisyDepth < 0.85f) {
-			return 5; // Stein (ID 5)
+		else if (noisyDepth < 0.75f) {
+			return 6; // Stein
 		}
-		else if (noisyDepth < 1.25f) {
-			return 6; // Dunkler Stein (ID 6)
+		else if (noisyDepth < 0.9f) {
+			return 7; // Dunkler Stein
 		}  
 		else {
-			return 3; // Magma (ID 3)
+			return 4; // Magma
 		}
 	}
-
+	
 	public int GenerateTile(int x, int y, int surfaceY) {
-		if (y < surfaceY) return 0; // 0 = Luft
+		if (y < surfaceY) return 0; // Luft oben
 
-		Biome biome = GetBiomeAt(x, y);
+		float relativeDepth = Mathf.Clamp((float)(y - surfaceY) / (MapHeight - surfaceY), 0.0f, 1.0f);
 
-		if (IsCave(x, y, biome) && ShouldGenerateWater(x, y, surfaceY, biome)) {
-			return 2; // 2 = Wasser
+		int bedrockLayer = MapHeight - 5;
+		if (y >= bedrockLayer) {
+		float n = _noise.GetNoise2D(x * 0.5f, y * 0.5f);
+		if (y >= MapHeight - 1 || n > 0.0f) return 12; 
 		}
-		if (IsCave(x, y, biome)) return 0;
+		Biome biome = GetBiomeAt(x, y);
+		
+		bool isCave = IsCave(x, y, relativeDepth, biome);
+
+		if (isCave) {
+			bool isCaveBelow = IsCave(x, y + 1, relativeDepth, biome);
+			
+			if (relativeDepth < 0.7f) {
+				if (ShouldGenerateWater(x, y, surfaceY, biome)) {
+					float wMask = _waterClusterMask.GetNoise2D(x, y);
+					if (!isCaveBelow || wMask > 0.6f) {
+						return 3; // Wasser
+					}
+				}
+			} else {
+				if (ShouldGenerateLava(x, y, relativeDepth, biome)) {
+					if (!isCaveBelow || _waterClusterMask.GetNoise2D(x + 1000, y + 1000) > 0.6f) {
+						return 4; // Lava
+					}
+				}
+			}
+			return 0;
+		}
+
+		if (y < surfaceY + 1) return 2; // Gras
 		return GetOreOrStone(x, y, surfaceY, biome);
 	}
-
-	public bool IsCave(int x, int y, Biome biome) {
-		float caveValue = _caveNoise.GetNoise2D(x, y);
-		float caveClusterValue = _caveClusterMask.GetNoise2D(x, y);
-		float threshold;
-		
-		switch(biome) {
+	
+	public bool IsCave(int x, int y, float depth, Biome biome) {
+	float caveValue = _caveNoise.GetNoise2D(x, y);
+	float threshold; // größere zahl -> größere höhle 
+	switch(biome) {
 			case Biome.FOREST:
-				threshold = 0.1f;
+				threshold = 0.01f;
 				break;
 			case Biome.DESERT:
-				threshold = 0.02f;
+				threshold = 0.005f;
 				break;
 			case Biome.ICE:
-				threshold = 0.15f;
+				threshold = 0.015f;
 				break;
 			case Biome.TUNDRA:
 				threshold = 0.02f;
+				break;
+			case Biome.LAVA: 
+				threshold = 0.1f;
+				caveValue = _caveNoise.GetNoise2D(x * 0.5f, y);
 				break;
 			default:
 				threshold = 0.03f;
 				break;
 		}
+	return Math.Abs(caveValue) < threshold;
+}
 
-		return Math.Abs(caveValue) < threshold && caveClusterValue > 0.0f;
+	public bool ShouldGenerateLava(int x, int y, float depth, Biome biome) {
+		if(biome != Biome.LAVA) return false;
+
+		float lMask = _waterClusterMask.GetNoise2D(x + 1000, y + 1000); 
+		
+		return lMask + (depth * 0.5f) > 0.0f;
 	}
-
 	public bool ShouldGenerateWater(int x, int y, int surfaceY, Biome biome) {
+		if(biome == Biome.LAVA) return false;
 		int minDepth;
 		float biomeBonus;
+		
 		switch(biome) {
 			case Biome.FOREST:
 				minDepth = 0;
@@ -253,7 +295,7 @@ public partial class WorldGenerator : Node
 				break;
 			case Biome.DESERT:
 				minDepth = 100;
-				biomeBonus = -0.1f;
+				biomeBonus = -0.2f;
 				break;
 			case Biome.ICE:
 				minDepth = 10;
@@ -261,7 +303,7 @@ public partial class WorldGenerator : Node
 				break;
 			case Biome.TUNDRA:
 				minDepth = 0;
-				biomeBonus = 0.2f;
+				biomeBonus = 0.1f;
 				break;
 			default:
 				minDepth = 20;
@@ -274,11 +316,9 @@ public partial class WorldGenerator : Node
 		float waterValue = _waterNoise.GetNoise2D(x, y);
 		float wMask = _waterClusterMask.GetNoise2D(x, y);
 		
-		float relativeDepth = (float)(y - surfaceY) / (MapHeight - surfaceY);
-		float noiseInfluence = 0.5f;
-		
-		float finalValue = relativeDepth + (waterValue * noiseInfluence) - biomeBonus;
-
-		return Math.Abs(finalValue) < 0.75f && wMask > 0.0f;
+		float depthFactor = Math.Abs((float)(y - surfaceY) / MapHeight);
+		float finalValue = depthFactor * waterValue - biomeBonus;
+		float wMaskValue = wMask + depthFactor;
+		return finalValue < 0.8f && wMaskValue > 0.5f;
 	}
 }

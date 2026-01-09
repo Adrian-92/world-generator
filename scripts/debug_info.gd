@@ -5,7 +5,7 @@ extends Node
 var mouse_pos = ""
 var world_pos = ""
 var current_biome = ""
-var biome_names = ["FOREST", "DESERT", "ICE", "TUNDRA", "CAVE"]
+var biome_names = ["FOREST", "DESERT", "ICE", "TUNDRA", "CAVE","LAVA"]
 
 func _ready() -> void:
 	pass

@@ -30,6 +30,6 @@ func get_mouse_pos():
 	
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("left_click"):
-		physics_handler.SetTile(mouse_tile_pos.x, mouse_tile_pos.y, -1) # make tile air
+		physics_handler.SetTile(mouse_tile_pos.x, mouse_tile_pos.y, 0) # make tile air
 	if event.is_action_pressed("right_click"):
 		physics_handler.SetTile(mouse_tile_pos.x, mouse_tile_pos.y, 1) # make tile earth

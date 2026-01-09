@@ -9,34 +9,42 @@ public partial class PhysicsHandler : Node
 	[Export] public TileMapLayer TargetLayer;
 	[Export] public double TickRate = 0.5;
 	[Export] public double CleanupRate = 5;
+	[Export] public double OvergrowRate = 10;
 	[Export] public int SimulationRadius = 5;
 	[Export] public int UnloadRadius = 10;
+	[Export] public int VegetationLimit = 8;
 	private System.Random _rng = new System.Random();
 	private double _timer = 0;
 	private double _cleanupTimer = 0;
+	private double _overgrowTimer = 0;
 	private int airTileID = 0;
-	private const int maxTilesPerTick = 1500; // limits simulation for performance
+	private int earthTileID = 1;
+	private int grassTileID = 2;
+	private int bedrockTileID = 12;
+	private int maxOvergrowDepth = 30;
+	private const int maxTilesPerTick = 1000; // limits simulation for performance
 	private List<Vector2I> _activeBuffer = new List<Vector2I>();
+	private List<Vector2I> _vegetationBuffer = new List<Vector2I>();
 	private Dictionary<Vector2I, Chunk> _chunks = new Dictionary<Vector2I, Chunk>();
 	private Dictionary<Vector2I, int[,]> _chunkCache = new Dictionary<Vector2I, int[,]>();
 
 	private Dictionary<int, TileProperty> _tileData = new Dictionary<int, TileProperty>() {
+		
 		{0, new TileProperty {Type = TileType.AIR} },
-		{100, new TileProperty {AtlasCoords = new Vector2I(0, 0), Type = TileType.STATIC} }, // Gras
-		{1, new TileProperty {AtlasCoords = new Vector2I(1, 0), Type = TileType.STATIC} }, // Erde
-		{2, new TileProperty {AtlasCoords = new Vector2I(15, 0), Type = TileType.LIQUID, Viscosity = 1.0f} }, // Wasser
-		{3, new TileProperty {AtlasCoords = new Vector2I(6, 0), Type = TileType.LIQUID, Viscosity = 0.2f} }, // Magma
-		{4, new TileProperty {AtlasCoords = new Vector2I(2, 0), Type = TileType.STATIC} },  // Dunkle Erde
-		{5, new TileProperty {AtlasCoords = new Vector2I(3, 0), Type = TileType.STATIC} },  // Stein
-		{6, new TileProperty {AtlasCoords = new Vector2I(4, 0), Type = TileType.STATIC} },  // Dunkler Stein
-		{7, new TileProperty {AtlasCoords = new Vector2I(7, 0), Type = TileType.STATIC} },
-		{8, new TileProperty {AtlasCoords = new Vector2I(8, 0), Type = TileType.STATIC} },
-		{9, new TileProperty {AtlasCoords = new Vector2I(9, 0), Type = TileType.STATIC} },
-		{10, new TileProperty {AtlasCoords = new Vector2I(10, 0), Type = TileType.STATIC} },
-		{11, new TileProperty {AtlasCoords = new Vector2I(11, 0), Type = TileType.STATIC} },
-		{12, new TileProperty {AtlasCoords = new Vector2I(12, 0), Type = TileType.STATIC} },
-		{13, new TileProperty {AtlasCoords = new Vector2I(13, 0), Type = TileType.STATIC} },
-		{14, new TileProperty {AtlasCoords = new Vector2I(14, 0), Type = TileType.STATIC} },
+		{1, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(1, 0), Type = TileType.STATIC} }, // Erde
+		{2, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(0, 0), Type = TileType.STATIC} }, // Gras
+		{3, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(15, 0), Type = TileType.LIQUID, Viscosity = 1.0f} }, // Wasser
+		{4, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(6, 0), Type = TileType.LIQUID, Viscosity = 0.2f} }, // Magma
+		{5, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(2, 0), Type = TileType.STATIC} },  // Dunkle Erde
+		{6, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(3, 0), Type = TileType.STATIC} },  // Stein
+		{7, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(4, 0), Type = TileType.STATIC} },  // Dunkler Stein
+		{8, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(7, 0), Type = TileType.STATIC} }, // Kohle
+		{9, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(8, 0), Type = TileType.STATIC} }, // Eisen
+		{10, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(9, 0), Type = TileType.STATIC} }, // Gold
+		{11, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(10, 0), Type = TileType.STATIC} }, // Diamant
+		{12, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(12, 0), Type = TileType.STATIC} }, // Bedrock
+		{13, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(12, 0), Type = TileType.STATIC} },
+		{14, new TileProperty {AtlasID = 1, AtlasCoords = new Vector2I(13, 0), Type = TileType.STATIC} },
 	};
 
 	public void UpdateChunksAround(Vector2 worldPos) {
@@ -86,6 +94,10 @@ public partial class PhysicsHandler : Node
 					if (prop.Type != TileType.STATIC && prop.Type != TileType.AIR) {
 					newChunk.ActiveTiles.Add(new Vector2I(x, y));
 					}
+					int tileIDAbove = Generator.GenerateTile(worldX, worldY - 1, surfaceY);
+					if(tileID == earthTileID && tileIDAbove == 0) {
+						newChunk.OvergrowableTiles.Add(new Vector2I(x, y));
+					}
 				}
 			}
 		}
@@ -130,24 +142,26 @@ public partial class PhysicsHandler : Node
 	public void SimulateStep() {
 		int tilesProcessed = 0;		
 		foreach (var chunk in _chunks.Values) {
-			if (chunk.ActiveTiles.Count == 0) continue;
+			if (chunk.ActiveTiles.Count == 0 && chunk.OvergrowableTiles.Count == 0) continue;
 
 			_activeBuffer.Clear();
 			_activeBuffer.AddRange(chunk.ActiveTiles);
 			chunk.ActiveTiles.Clear();
-
 			foreach (var localPos in _activeBuffer) {
-				if(tilesProcessed >= maxTilesPerTick){
+				if(tilesProcessed >= maxTilesPerTick) {
 					chunk.ActiveTiles.Add(localPos);
 					continue;
 				}
 				int currentID = chunk.Grid[localPos.X, localPos.Y];
 				TileProperty prop = _getTileData(currentID);
-
+				
+				// liquid physics
 				if (prop.Type == TileType.LIQUID) {
+					if(_rng.NextDouble() < prop.Viscosity) {
 					SimulateLiquid(chunk, localPos, currentID);
 					tilesProcessed++;
-				}
+						}
+					}
 			}
 		}
 	}
@@ -155,13 +169,13 @@ public partial class PhysicsHandler : Node
 	private void SimulateLiquid(Chunk chunk, Vector2I localPos, int id) {
 		int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
 		int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
-
-		// Runter fallen
+		
+		// fall down
 		if (_getTileData(GetTile(worldX, worldY + 1)).Type == TileType.AIR) {
 			SetTile(worldX, worldY, airTileID);
 			SetTile(worldX, worldY + 1, id);
 		} 
-		// Zur Seite fließen
+		// sideways
 		else {
 			int sideDir = _rng.Next(2) == 0 ? 1 : -1;
 			if (_getTileData(GetTile(worldX + sideDir, worldY)).Type == TileType.AIR) {
@@ -174,8 +188,41 @@ public partial class PhysicsHandler : Node
 			}
 		}
 	}
+	private void SimulateVegetation() {
+		int tilesProcessed = 0;	
+		foreach (var chunk in _chunks.Values) {
+			if (chunk.OvergrowableTiles.Count == 0) continue;
+			
+			_vegetationBuffer.Clear();
 
+			int count = 0;
+			foreach(var localPos in chunk.OvergrowableTiles) {
+				if(count >= VegetationLimit) break;
+				_vegetationBuffer.Add(localPos);
+				count++;
+			}
+			foreach (var localPos in _vegetationBuffer){
+				if(tilesProcessed >= maxTilesPerTick) {
+					continue;
+				}
+				int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
+				int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
+				
+				if (_getTileData(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
+				if (_rng.Next(2) == 0) {
+					SetTile(worldX, worldY, grassTileID);
+					tilesProcessed++;
+					chunk.OvergrowableTiles.Remove(localPos);
+					}
+				}	
+			}
+		}
+	}	
+	
+	
 	public int GetTile(int x, int y) {
+		if (y >= Generator.MapHeight) return bedrockTileID; 
+	if (y < 0) return airTileID;
 		Vector2I cPos = new Vector2I(
 			Mathf.FloorToInt((float)x / Chunk.Size), 
 			Mathf.FloorToInt((float)y / Chunk.Size)
@@ -199,20 +246,40 @@ public partial class PhysicsHandler : Node
 		int localY = (y % Chunk.Size + Chunk.Size) % Chunk.Size;
 
 		if (chunk.Grid[localX, localY] != value) {
+			int oldID = chunk.Grid[localX, localY];
 			chunk.Grid[localX, localY] = value;
 			chunk.IsDirty = true;
+			
+			if(oldID == earthTileID) {
+				chunk.OvergrowableTiles.Remove(new Vector2I(localX, localY));
+			}
 			
 			TileProperty prop = _getTileData(value);
 			if (prop.Type == TileType.AIR) {
 				WakeUpNeighbors(x, y);
+				TryAddOvergrowable(x,y + 1);
 			}
 			else if (prop.Type == TileType.LIQUID) {
 				chunk.ActiveTiles.Add(new Vector2I(localX, localY));
 			}
-			
+			else if(value == earthTileID){
+				if (_getTileData(GetTile(x, y - 1)).Type == TileType.AIR) {
+				chunk.OvergrowableTiles.Add(new Vector2I(localX, localY));
+				}
+			}
 			UpdateTileVisual(new Vector2I(x, y), value);
 		}
 	}
+	
+	private void TryAddOvergrowable(int worldX, int worldY) {
+	if (GetTile(worldX, worldY) == earthTileID) {
+		Vector2I cPos = new Vector2I(Mathf.FloorToInt((float)worldX / Chunk.Size), Mathf.FloorToInt((float)worldY / Chunk.Size));
+		if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
+			Vector2I lPos = new Vector2I((worldX % Chunk.Size + Chunk.Size) % Chunk.Size, (worldY % Chunk.Size + Chunk.Size) % Chunk.Size);
+			chunk.OvergrowableTiles.Add(lPos);
+		}
+	}
+}
 
 	private void WakeUpNeighbors(int x, int y) {
 		int[] dx = { 0, 0, -1, 1, 0 };
@@ -232,7 +299,8 @@ public partial class PhysicsHandler : Node
 			if (prop.Type == TileType.LIQUID) chunk.ActiveTiles.Add(new Vector2I(lx, ly));
 		}
 	}
-
+	
+	// use this as few as possible to relieve cpu 
 	private void DrawChunk(Chunk chunk) {
 		for (int x = 0; x < Chunk.Size; x++) {
 			for (int y = 0; y < Chunk.Size; y++) {
@@ -253,7 +321,7 @@ public partial class PhysicsHandler : Node
 	private void UpdateTileVisual(Vector2I worldPos, int value) {
 		if (_tileData.TryGetValue(value, out TileProperty prop)) {
 		if(prop.Type == TileType.AIR) TargetLayer.SetCell(worldPos, -1);
-		else TargetLayer.SetCell(worldPos, 1, prop.AtlasCoords);
+		else TargetLayer.SetCell(worldPos, prop.AtlasID, prop.AtlasCoords);
 		}
 	}
 	
@@ -279,6 +347,7 @@ public partial class PhysicsHandler : Node
 		
 		_cleanupTimer += delta;
 		_timer += delta;
+		_overgrowTimer += delta;
 		if(_timer >= TickRate) {
 			SimulateStep();
 			_timer = 0;
@@ -286,6 +355,10 @@ public partial class PhysicsHandler : Node
 		if(_cleanupTimer > CleanupRate) {
 			UnloadFarChunks(camera.GlobalPosition);
 			_cleanupTimer = 0;
+		}
+		if(_overgrowTimer >= OvergrowRate){
+			SimulateVegetation();
+			_overgrowTimer = 0;
 		}
 	}
 	
