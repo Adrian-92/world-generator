@@ -17,7 +17,7 @@ public partial class WorldGenerator : Node
 	private FastNoiseLite _caveClusterMask = new FastNoiseLite();
 	private FastNoiseLite _waterNoise = new FastNoiseLite();
 	private FastNoiseLite _waterClusterMask = new FastNoiseLite();
-
+	
 	public void SetupNoise(int mapSeed, float noiseFrequency) {
 		_tempNoise.Seed = mapSeed;
 		_tempNoise.Frequency = 0.0005f;
@@ -65,17 +65,17 @@ public partial class WorldGenerator : Node
 	public float GetSurfaceNoise(int worldX) {
 		float noise = (_noise.GetNoise1D(worldX) + 1.0f) / 2.0f;
 		_noise.DomainWarpEnabled = true;
-	return noise;
+		return noise;
 	}
 
 	public int GetSurfaceHeight(int worldX) {
-	float n = (_noise.GetNoise1D(worldX) + 1.0f) / 2.0f;
-	return (int)(n * 30); 
-}
+		float n = (_noise.GetNoise1D(worldX) + 1.0f) / 2.0f;
+		return (int)(n * 30); 
+	}
 
 	public Biome GetBiomeAt(int x, int y) {
 		float temp = _tempNoise.GetNoise2D(x, y * 0.25f);
-	float moisture = _moistureNoise.GetNoise2D(x, y * 0.25f);
+		float moisture = _moistureNoise.GetNoise2D(x, y * 0.25f);
 		
 		if (y > MapHeight * 0.7f) return Biome.CAVE;
 		
@@ -190,35 +190,30 @@ public partial class WorldGenerator : Node
 		float noisyDepth = depthPerc + layerNoise;
 		if (noisyDepth < 0.35f) {
 		return 1; // Erde (ID 1)
-	} 
-	else if (noisyDepth < 0.55f) {
-		return 4; // Dunkle Erde (ID 4)
-	} 
-	else if (noisyDepth < 0.85f) {
-		return 5; // Stein (ID 5)
-	}
-	else if (noisyDepth < 1.25f) {
-		return 6; // Dunkler Stein (ID 6)
-	}  
-	else {
-		return 3; // Magma (ID 3)
-	}
+		} 
+		else if (noisyDepth < 0.55f) {
+			return 4; // Dunkle Erde (ID 4)
+		} 
+		else if (noisyDepth < 0.85f) {
+			return 5; // Stein (ID 5)
+		}
+		else if (noisyDepth < 1.25f) {
+			return 6; // Dunkler Stein (ID 6)
+		}  
+		else {
+			return 3; // Magma (ID 3)
+		}
 	}
 
 	public int GenerateTile(int x, int y, int surfaceY) {
-		if (y < surfaceY) return -1; // -1 = Luft
+		if (y < surfaceY) return 0; // 0 = Luft
 
 		Biome biome = GetBiomeAt(x, y);
 
-		if (IsCave(x, y, biome)) {
-			if (ShouldGenerateWater(x, y, surfaceY, biome)) {
-				return 2; // 2 = Wasser
-			}
-			return -1; // Luft
+		if (IsCave(x, y, biome) && ShouldGenerateWater(x, y, surfaceY, biome)) {
+			return 2; // 2 = Wasser
 		}
-
-		if (y < surfaceY + 2) return 0; // Gras/Oberfläche
-
+		if (IsCave(x, y, biome)) return 0;
 		return GetOreOrStone(x, y, surfaceY, biome);
 	}
 

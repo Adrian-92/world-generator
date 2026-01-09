@@ -975,7 +975,7 @@ sources/1 = SubResource("TileSetAtlasSource_lc2xo")
 script = ExtResource("1_fc0e3")
 
 [node name="Player" parent="." instance=ExtResource("1_80nbo")]
-SPEED = 700.0
+SPEED = 250.0
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
 
@@ -986,7 +986,8 @@ tile_set = SubResource("TileSet_80cx4")
 [node name="PhysicsHandler" parent="." node_paths=PackedStringArray("Generator", "TargetLayer") instance=ExtResource("7_j5wjh")]
 Generator = NodePath("../WorldGenerator")
 TargetLayer = NodePath("../TileMapLayer")
-SimulationRadius = 4
+TickRate = 1.0
+SimulationRadius = 6
 UnloadRadius = 8
 
 [node name="WorldGenerator" parent="." instance=ExtResource("8_vef74")]

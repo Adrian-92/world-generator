@@ -18,7 +18,6 @@ public class Chunk {
 		if (gen != null) {
 			Biome = gen.GetBiomeAt(pos.X * Size + Size/2, pos.Y * Size + Size/2);
 		} else {
-			GD.PrintErr("FEHLER: Chunk wurde ein null-Generator übergeben!");
 			Biome = Biome.FOREST;
 		}
 	}
