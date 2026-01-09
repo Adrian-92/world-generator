@@ -6,7 +6,7 @@ using static GlobalConstants;
 public partial class WorldGenerator : Node
 {
 
-	[Export] public int MapHeight = 256;
+	[Export] public int MapHeight = 350;
 	[Export] public int StartingAreaSize = 128;
 	private FastNoiseLite _tempNoise = new FastNoiseLite();
 	private FastNoiseLite _moistureNoise = new FastNoiseLite();
@@ -18,6 +18,12 @@ public partial class WorldGenerator : Node
 	private FastNoiseLite _caveClusterMask = new FastNoiseLite();
 	private FastNoiseLite _waterNoise = new FastNoiseLite();
 	private FastNoiseLite _waterClusterMask = new FastNoiseLite();
+	
+	public struct TileContext {
+		public Biome Biome;
+		public float Depth;
+		public int SurfaceY;
+	}
 	
 	public void SetupNoise(int mapSeed, float noiseFrequency) {
 		_tempNoise.Seed = mapSeed;
@@ -159,16 +165,16 @@ public partial class WorldGenerator : Node
 			p.AtlasCoords = new Vector2I(8, 0);
 			p.ScaleX = 0.1f; p.ScaleY = 2.5f;
 			p.Threshold = 0.5f;
-			p.ClusterThreshold = 0.15f;
+			p.ClusterThreshold = 0.25f;
 			p.SeedOffset = 0;
 		}
 		return p;
 	}
 
-	public int GetOreOrStone(int x, int y, int surfaceY, Biome biome) {
+	public int GetOreOrStone(int x, int y, TileContext ctx) {
 		OreParams p = GetOreParameters(x, y);		
 		
-		switch(biome) {
+		switch(ctx.Biome) {
 			case Biome.FOREST:
 				break;
 			case Biome.DESERT:
@@ -188,13 +194,16 @@ public partial class WorldGenerator : Node
 
 		bool isOre = veinValue < (1.0f - p.Threshold) && clusterValue > p.ClusterThreshold;
 
-		if (isOre && y > surfaceY + 10) {
+		if (isOre && y > ctx.SurfaceY + 10) {
 			return p.AtlasCoords.X; 
 		}
-		float depthPerc = (float)y / MapHeight;
+		float depthPerc = (float) y / MapHeight;
 		float layerNoise = _noise.GetNoise2D(x * 0.5f, y * 0.5f) * 0.1f;
-		float noisyDepth = depthPerc + layerNoise;
-		if (noisyDepth < 0.35f) {
+		float layerWarp = _noise.GetNoise2D(x * 0.05f, 0) * 0.05f; 
+		float noisyDepth = depthPerc + layerNoise + layerWarp;
+		
+
+		if (noisyDepth < 0.25f) {
 		return 1; // Erde
 		} 
 		else if (noisyDepth < 0.55f) {
@@ -214,29 +223,34 @@ public partial class WorldGenerator : Node
 	public int GenerateTile(int x, int y, int surfaceY) {
 		if (y < surfaceY) return 0; // Luft oben
 
-		float relativeDepth = Mathf.Clamp((float)(y - surfaceY) / (MapHeight - surfaceY), 0.0f, 1.0f);
+		TileContext ctx = new TileContext {
+		SurfaceY = surfaceY,
+		Depth = Mathf.Clamp((float)(y - surfaceY) / (MapHeight - surfaceY), 0.0f, 1.0f),
+		Biome = GetBiomeAt(x, y) 
+		};
+
 
 		int bedrockLayer = MapHeight - 5;
 		if (y >= bedrockLayer) {
 		float n = _noise.GetNoise2D(x * 0.5f, y * 0.5f);
 		if (y >= MapHeight - 1 || n > 0.0f) return 12; 
 		}
-		Biome biome = GetBiomeAt(x, y);
-		
-		bool isCave = IsCave(x, y, relativeDepth, biome);
 
+		bool isCave = IsCave(x, y, ctx);
+		float distToCenter = Math.Abs(x);
+		if (distToCenter < 10 && y < surfaceY + 10) {
+			isCave = false; // Garantiert festen Boden am Spawn-Punkt
+			}
 		if (isCave) {
-			bool isCaveBelow = IsCave(x, y + 1, relativeDepth, biome);
+			bool isCaveBelow = IsCave(x, y + 1, ctx);
 			
-			if (relativeDepth < 0.7f) {
-				if (ShouldGenerateWater(x, y, surfaceY, biome)) {
-					float wMask = _waterClusterMask.GetNoise2D(x, y);
-					if (!isCaveBelow || wMask > 0.6f) {
-						return 3; // Wasser
-					}
+			if (ctx.Depth < 0.7f) {
+				if (ShouldGenerateWater(x, y, ctx)) {
+					return 3;
+
 				}
 			} else {
-				if (ShouldGenerateLava(x, y, relativeDepth, biome)) {
+				if (ShouldGenerateLava(x, y, ctx)) {
 					if (!isCaveBelow || _waterClusterMask.GetNoise2D(x + 1000, y + 1000) > 0.6f) {
 						return 4; // Lava
 					}
@@ -246,49 +260,47 @@ public partial class WorldGenerator : Node
 		}
 
 		if (y < surfaceY + 1) return 2; // Gras
-		return GetOreOrStone(x, y, surfaceY, biome);
+		return GetOreOrStone(x, y, ctx);
 	}
 	
-	public bool IsCave(int x, int y, float depth, Biome biome) {
-	float caveValue = _caveNoise.GetNoise2D(x, y);
-	float threshold; // größere zahl -> größere höhle 
-	switch(biome) {
-			case Biome.FOREST:
-				threshold = 0.01f;
-				break;
-			case Biome.DESERT:
-				threshold = 0.005f;
-				break;
-			case Biome.ICE:
-				threshold = 0.015f;
-				break;
-			case Biome.TUNDRA:
-				threshold = 0.02f;
-				break;
-			case Biome.LAVA: 
-				threshold = 0.1f;
-				caveValue = _caveNoise.GetNoise2D(x * 0.5f, y);
-				break;
-			default:
-				threshold = 0.03f;
-				break;
+	public bool IsCave(int x, int y, TileContext ctx) {
+		float caveValue = _caveNoise.GetNoise2D(x, y);
+		float threshold; // größere zahl -> größere höhle 
+		switch(ctx.Biome) {
+				case Biome.FOREST:
+					threshold = 0.01f;
+					break;
+				case Biome.DESERT:
+					threshold = 0.005f;
+					break;
+				case Biome.ICE:
+					threshold = 0.015f;
+					break;
+				case Biome.TUNDRA:
+					threshold = 0.02f;
+					break;
+				case Biome.LAVA: 
+					threshold = 0.1f;
+					caveValue = _caveNoise.GetNoise2D(x * 0.5f, y);
+					break;
+				default:
+					threshold = 0.03f;
+					break;
+			}
+		return Math.Abs(caveValue) < threshold;
 		}
-	return Math.Abs(caveValue) < threshold;
-}
 
-	public bool ShouldGenerateLava(int x, int y, float depth, Biome biome) {
-		if(biome != Biome.LAVA) return false;
-
+	public bool ShouldGenerateLava(int x, int y, TileContext ctx) {
+		if(ctx.Biome != Biome.LAVA) return false;
 		float lMask = _waterClusterMask.GetNoise2D(x + 1000, y + 1000); 
-		
-		return lMask + (depth * 0.5f) > 0.0f;
+		return lMask + (ctx.Depth * 0.5f) > 0.0f;
 	}
-	public bool ShouldGenerateWater(int x, int y, int surfaceY, Biome biome) {
-		if(biome == Biome.LAVA) return false;
+	public bool ShouldGenerateWater(int x, int y, TileContext ctx) {
+		if(ctx.Biome == Biome.LAVA) return false;
 		int minDepth;
 		float biomeBonus;
 		
-		switch(biome) {
+		switch(ctx.Biome) {
 			case Biome.FOREST:
 				minDepth = 0;
 				biomeBonus = 0f;
@@ -311,12 +323,12 @@ public partial class WorldGenerator : Node
 				break;
 		}
 		
-		if (y < surfaceY + minDepth) return false;
+		if (y < ctx.SurfaceY + minDepth) return false;
 
 		float waterValue = _waterNoise.GetNoise2D(x, y);
 		float wMask = _waterClusterMask.GetNoise2D(x, y);
 		
-		float depthFactor = Math.Abs((float)(y - surfaceY) / MapHeight);
+		float depthFactor = Math.Abs((float)(y - ctx.SurfaceY) / MapHeight);
 		float finalValue = depthFactor * waterValue - biomeBonus;
 		float wMaskValue = wMask + depthFactor;
 		return finalValue < 0.8f && wMaskValue > 0.5f;
