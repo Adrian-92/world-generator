@@ -263,6 +263,18 @@ public partial class WorldGenerator : Node
 		return GetOreOrStone(x, y, ctx);
 	}
 	
+	public bool GenerateBackgroundTile(int x, int y, int surfaceY) {
+		TileContext ctx = new TileContext {
+		SurfaceY = surfaceY,
+		Depth = Mathf.Clamp((float)(y - surfaceY) / (MapHeight - surfaceY), 0.0f, 1.0f),
+		Biome = GetBiomeAt(x, y) 
+		};
+		if (IsCave(x, y, ctx)){
+			return true;
+		}
+		return false;
+	}
+	
 	public bool IsCave(int x, int y, TileContext ctx) {
 		float caveValue = _caveNoise.GetNoise2D(x, y);
 		float threshold; // größere zahl -> größere höhle 

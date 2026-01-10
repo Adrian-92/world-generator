@@ -25,5 +25,4 @@ public static class GlobalConstants  {
 	public float Viscosity; 
 	public int Damage;      
 }
-	
 }
