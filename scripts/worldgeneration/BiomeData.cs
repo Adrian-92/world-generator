@@ -44,7 +44,7 @@ public static class BiomeData
 		};
 
 		_data[Biome.ICE] = new BiomeParams {
-			AtlasID = 1,
+			AtlasID = 3,
 			OreGenFactor = 0.0f,
 			OreParamThreshold = 0.3f,
 			CaveThreshold = 0.015f,

@@ -2,7 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using static GlobalConstants;
-
+using static BiomeData;
 public partial class PhysicsHandler : Node
 {
 	[Export] public WorldGenerator Generator;
@@ -13,6 +13,7 @@ public partial class PhysicsHandler : Node
 	[Export] public int UnloadRadius = 10;
 	[Export] public int VegetationLimit = 8;
 	[Export] public double OvergrowRate = 10;
+	
 	
 	private System.Random _rng = new System.Random();
 	private double _timer = 0;
@@ -25,6 +26,8 @@ public partial class PhysicsHandler : Node
 	private const int grassTileID = 2;
 	private const int bedrockTileID = 12;
 	private const int maxTilesPerTick = 1000;
+	private const int overgrowChance = 10;
+	
 
 	private List<Vector2I> _activeBuffer = new List<Vector2I>();
 	private List<Vector2I> _vegetationBuffer = new List<Vector2I>();
@@ -161,6 +164,8 @@ public partial class PhysicsHandler : Node
 		Vector2I lPos = WorldToLocalPos(x, y);
 
 		if (chunk.Grid[lPos.X, lPos.Y].TileID != newTileID) {
+			BiomeParams biome = GetParams(chunk.Biome);
+			int atlasID = biome.AtlasID;
 			int oldID = chunk.Grid[lPos.X, lPos.Y].TileID;
 			TileProperty prop = _getTileData(newTileID);
 			Tile newTile = new Tile((short)newTileID, 10, prop.Type, prop.Viscosity, 0);
@@ -176,16 +181,16 @@ public partial class PhysicsHandler : Node
 			} else if (newTile.Type == TileType.LIQUID) {
 				chunk.ActiveTiles.Add(lPos);
 			}
-			UpdateTileVisual(new Vector2I(x, y), newTileID);
+			UpdateTileVisual(new Vector2I(x, y), newTileID, atlasID);
 		}
 	}
 
 	private TileProperty _getTileData(int id) {
 		if (TileAtlasData.TilesetData.TryGetValue(id, out Vector2I coords)) {
 			TileType t = TileType.STATIC;
-			if (id == 0) t = TileType.AIR;
+			if (id == airTileID) t = TileType.AIR;
 			if (id == 3 || id == 4) t = TileType.LIQUID;
-			if (id == 12) t = TileType.BEDROCK;
+			if (id == bedrockTileID) t = TileType.BEDROCK;
 			
 			return new TileProperty { 
 				Type = t, 
@@ -199,14 +204,14 @@ public partial class PhysicsHandler : Node
 
 	private void SetBackgroundTile(int x, int y, int oldTileID) {
 		if (TileAtlasData.BackgroundTileData.TryGetValue(oldTileID, out Vector2I coords)) {
-			Background.SetCell(new Vector2I(x, y), 1, coords);
+			Background.SetCell(new Vector2I(x, y), 0, new Vector2I(2, 2));
 		}
 	}
 
-	private void UpdateTileVisual(Vector2I worldPos, int tileID) {
+	private void UpdateTileVisual(Vector2I worldPos, int tileID, int atlasID) {
 		if (TileAtlasData.TilesetData.TryGetValue(tileID, out Vector2I coords)) {
 			if (tileID == 0) TargetLayer.SetCell(worldPos, -1);
-			else TargetLayer.SetCell(worldPos, 1, coords);
+			else TargetLayer.SetCell(worldPos, atlasID, coords);
 		}
 	}
 
@@ -262,7 +267,7 @@ public partial class PhysicsHandler : Node
 				int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
 				int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
 				if (_getTileData(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
-					if (_rng.Next(10) == 0) {
+					if (_rng.Next(overgrowChance) == 0) {
 						SetTile(worldX, worldY, grassTileID);
 						chunk.OvergrowableTiles.Remove(localPos);
 					}
@@ -276,12 +281,14 @@ public partial class PhysicsHandler : Node
 	private Vector2I WorldToLocalPos(int x, int y) => new Vector2I((x % Chunk.Size + Chunk.Size) % Chunk.Size, (y % Chunk.Size + Chunk.Size) % Chunk.Size);
 
 	private void DrawChunk(Chunk chunk) {
+		BiomeParams biome = GetParams(chunk.Biome);
+		int atlasID = biome.AtlasID;
 		for (int x = 0; x < Chunk.Size; x++) {
 			for (int y = 0; y < Chunk.Size; y++) {
 				Tile tile = chunk.Grid[x, y];
 				if (tile.Type != TileType.AIR) {
 					Vector2I worldPos = new Vector2I(chunk.ChunkPos.X * Chunk.Size + x, chunk.ChunkPos.Y * Chunk.Size + y);
-					UpdateTileVisual(worldPos, tile.TileID);
+					UpdateTileVisual(worldPos, tile.TileID, atlasID);
 				}
 			}
 		}
