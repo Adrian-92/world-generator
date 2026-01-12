@@ -1079,6 +1079,7 @@ top_level = true
 SPEED = 700.0
 
 [node name="Camera2D" type="Camera2D" parent="Player"]
+zoom = Vector2(0.5, 0.5)
 
 [node name="TileMapLayer" type="TileMapLayer" parent="."]
 texture_filter = 1
@@ -1094,7 +1095,6 @@ Generator = NodePath("../WorldGenerator")
 TargetLayer = NodePath("../TileMapLayer")
 Background = NodePath("../BackgroundLayer")
 TickRate = 0.3
-UnloadRadius = 8
 
 [node name="WorldGenerator" parent="." instance=ExtResource("8_vef74")]
 

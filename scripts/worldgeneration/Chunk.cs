@@ -15,7 +15,7 @@ public partial class Chunk : Node2D
 		int res = worldCoord % Size;
 		return res < 0 ? res + Size : res;
 	}
-
+	public string Name;
 	public Tile[,] Grid;
 	public Vector2I ChunkPos;
 	public Biome Biome;
@@ -49,6 +49,42 @@ public partial class Chunk : Node2D
 
 		Generate(generator);
 	}
+	
+
+public void InitializeFromCache(Vector2I cPos, TileSet tileSet, Tile[,] cachedGrid, WorldGenerator generator) {
+	this.ChunkPos = cPos;
+	this.Grid = (Tile[,])cachedGrid.Clone(); 
+	
+	this.Position = new Vector2(cPos.X * Size * TilePixelSize, cPos.Y * Size * TilePixelSize);
+
+	BackgroundLayer = new TileMapLayer { TileSet = tileSet, Name = "Background", ZIndex = -1 };
+	GroundLayer = new TileMapLayer { TileSet = tileSet, Name = "Ground" };
+	
+	AddChild(BackgroundLayer);
+	AddChild(GroundLayer);
+
+
+	for (int x = 0; x < Size; x++) {
+		for (int y = 0; y < Size; y++) {
+			int worldX = ChunkPos.X * Size + x;
+			int worldY = ChunkPos.Y * Size + y;
+			int surfaceY = generator.GetSurfaceHeight(worldX);
+			
+			Tile tile = Grid[x, y];
+			DrawTile(x, y, tile, worldX, worldY, surfaceY, generator);
+			if (tile.Type == TileType.LIQUID) {
+				ActiveTiles.Add(new Vector2I(x, y));
+			}
+			if (tile.TileID == EarthID) {
+				if (generator.GenerateTile(worldX, worldY - 1, surfaceY).Type == TileType.AIR) {
+					OvergrowableTiles.Add(new Vector2I(x, y));
+				}
+			}
+		}
+	}
+}
+	
+	
 
 	private void Generate(WorldGenerator generator) {
 		if (generator == null) return;

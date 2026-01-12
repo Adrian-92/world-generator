@@ -73,7 +73,7 @@ public partial class PhysicsHandler : Node
 			Mathf.FloorToInt(worldPos.Y / chunkSizePx)
 		);
 
-		int maxGensThisFrame = 10; 
+		int maxGensThisFrame = 50; 
 		int currentGens = 0;
 
 		for (int r = 0; r <= SimulationRadius; r++) {
@@ -93,17 +93,28 @@ public partial class PhysicsHandler : Node
 	}
 
 	private void GenerateChunk(Vector2I cPos) {
+		if (_chunks.ContainsKey(cPos)) return;
 
 		Chunk newChunk = new Chunk();
+		newChunk.Name = $"Chunk_{cPos.X}_{cPos.Y}";
 		AddChild(newChunk);
 		
-		newChunk.Initialize(cPos, TargetLayer.TileSet, Generator);
+		if (_chunkCache.TryGetValue(cPos, out Tile[,] cachedGrid)) {
+			newChunk.InitializeFromCache(cPos, TargetLayer.TileSet, cachedGrid, Generator);
+		} else {
+			newChunk.Initialize(cPos, TargetLayer.TileSet, Generator);
+		}
 		
 		_chunks.Add(cPos, newChunk);
 	}
 
 	public void UnloadFarChunks(Vector2 worldPos) {
-		Vector2I playerChunkPos = WorldToChunkPos((int)worldPos.X / 16, (int)worldPos.Y / 16);
+		float chunkSizePx = Chunk.Size * 16f;
+		Vector2I playerChunkPos = new Vector2I(
+			Mathf.FloorToInt(worldPos.X / chunkSizePx),
+			Mathf.FloorToInt(worldPos.Y / chunkSizePx)
+		);
+
 		List<Vector2I> toRemove = new List<Vector2I>();
 
 		foreach (var cPos in _chunks.Keys) {
@@ -112,12 +123,9 @@ public partial class PhysicsHandler : Node
 			}
 		}
 		foreach (var cPos in toRemove) {
-			_chunkCache[cPos] = (Tile[,])_chunks[cPos].Grid.Clone();
-			for (int x = 0; x < Chunk.Size; x++) {
-				for (int y = 0; y < Chunk.Size; y++) {
-					TargetLayer.SetCell(new Vector2I(cPos.X * Chunk.Size + x, cPos.Y * Chunk.Size + y), -1);
-				}
-			}
+			Chunk chunkNode = _chunks[cPos];
+			_chunkCache[cPos] = (Tile[,])chunkNode.Grid.Clone();
+			chunkNode.QueueFree();
 			_chunks.Remove(cPos);
 		}
 	}
