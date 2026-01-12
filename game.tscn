@@ -1,8 +1,9 @@
-[gd_scene load_steps=18 format=3 uid="uid://rqd0hosn31go"]
+[gd_scene load_steps=20 format=3 uid="uid://rqd0hosn31go"]
 
 [ext_resource type="PackedScene" uid="uid://cemrxaidpfiy7" path="res://player.tscn" id="1_80nbo"]
 [ext_resource type="Script" uid="uid://bpuygsuu7nvpx" path="res://game.gd" id="1_fc0e3"]
 [ext_resource type="Texture2D" uid="uid://qgk6uktri7yi" path="res://tiles/test.png" id="5_j5wjh"]
+[ext_resource type="Texture2D" uid="uid://xy52essshcbm" path="res://tiles/world_test_ice.png" id="6_mfdv2"]
 [ext_resource type="Texture2D" uid="uid://bcbrkbb20mowk" path="res://tiles/world_test.png" id="6_vef74"]
 [ext_resource type="Texture2D" uid="uid://bdodmfqn5ogfr" path="res://tiles/earth_tile_sheet.png" id="7_hve3p"]
 [ext_resource type="PackedScene" uid="uid://clr2vovycs7jc" path="res://physics_handler.tscn" id="7_j5wjh"]
@@ -556,6 +557,24 @@ texture = ExtResource("7_hve3p")
 0:6/0/terrains_peering_bit/bottom_right_corner = 0
 0:6/0/terrains_peering_bit/bottom_side = 0
 
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_80cx4"]
+texture = ExtResource("6_mfdv2")
+0:0/0 = 0
+1:0/0 = 0
+2:0/0 = 0
+3:0/0 = 0
+4:0/0 = 0
+5:0/0 = 0
+6:0/0 = 0
+7:0/0 = 0
+8:0/0 = 0
+9:0/0 = 0
+10:0/0 = 0
+12:0/0 = 0
+13:0/0 = 0
+14:0/0 = 0
+15:0/0 = 0
+
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_7sc4i"]
 texture = ExtResource("8_mfdv2")
 0:3/0 = 0
@@ -970,6 +989,7 @@ sources/0 = SubResource("TileSetAtlasSource_iotsf")
 sources/4 = SubResource("TileSetAtlasSource_7sc4i")
 sources/1 = SubResource("TileSetAtlasSource_lc2xo")
 sources/2 = SubResource("TileSetAtlasSource_215e1")
+sources/3 = SubResource("TileSetAtlasSource_80cx4")
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_hve3p"]
 texture = ExtResource("7_hve3p")
@@ -1056,6 +1076,7 @@ texture_filter = 1
 tile_set = SubResource("TileSet_80cx4")
 
 [node name="BackgroundLayer" type="TileMapLayer" parent="."]
+self_modulate = Color(0.8414177, 0.8414177, 0.8414177, 1)
 z_index = -2
 tile_set = SubResource("TileSet_mfdv2")
 
@@ -1064,8 +1085,6 @@ Generator = NodePath("../WorldGenerator")
 TargetLayer = NodePath("../TileMapLayer")
 Background = NodePath("../BackgroundLayer")
 TickRate = 0.3
-SimulationRadius = 10
-UnloadRadius = 12
 
 [node name="WorldGenerator" parent="." instance=ExtResource("8_vef74")]
 

@@ -1,11 +1,11 @@
 using Godot;
 using System;
 using System.Collections.Generic;
-using static GlobalConstants;
+using static BiomeData;
 
 public class Chunk {
 	public const int Size = 32;
-	public int[,] Grid;
+	public Tile[,] Grid;
 	public Vector2I ChunkPos;
 	public HashSet<Vector2I> ActiveTiles = new HashSet<Vector2I>();
 	public HashSet<Vector2I> OvergrowableTiles = new HashSet<Vector2I>();
@@ -15,7 +15,7 @@ public class Chunk {
 	
 	public Chunk(Vector2I pos, WorldGenerator gen) {
 		ChunkPos = pos;
-		Grid = new int[Size, Size];
+		Grid = new Tile[Size, Size];
 		if (gen != null) {
 			Biome = gen.GetBiomeAt(pos.X * Size + Size/2, pos.Y * Size + Size/2);
 		} else {
