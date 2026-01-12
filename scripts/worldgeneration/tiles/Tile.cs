@@ -29,7 +29,6 @@ public struct Tile
 		this.Type = type;
 		this.Damage = damage;
 		this.HasBackground = false;
-		// Viskosität intern als Byte speichern
 		this.ViscosityInt = (byte)(Mathf.Clamp(viscosity, 0, 1) * 255);
 	}
 }

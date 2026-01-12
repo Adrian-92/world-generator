@@ -14,6 +14,8 @@ public partial class PhysicsHandler : Node
 	[Export] public int VegetationLimit = 8;
 	[Export] public double OvergrowRate = 10;
 	
+	private const int AirID = 0;
+	private const int EarthID = 1;
 	
 	private System.Random _rng = new System.Random();
 	private double _timer = 0;
@@ -21,11 +23,6 @@ public partial class PhysicsHandler : Node
 	private double _cleanupTimer = 0;
 	private double CleanupRate = 5.0;
 	
-	private const int airTileID = 0;
-	private const int earthTileID = 1;
-	private const int grassTileID = 2;
-	private const int bedrockTileID = 12;
-	private const int maxTilesPerTick = 1000;
 	private const int overgrowChance = 10;
 	
 
@@ -35,6 +32,7 @@ public partial class PhysicsHandler : Node
 	private Dictionary<Vector2I, Tile[,]> _chunkCache = new Dictionary<Vector2I, Tile[,]>();
 
 	public override void _Ready() {
+		TileRegistry.LoadAll();
 		if (Generator != null && TargetLayer != null) {
 			UpdateChunksAround(Vector2.Zero);
 		}
@@ -95,34 +93,13 @@ public partial class PhysicsHandler : Node
 	}
 
 	private void GenerateChunk(Vector2I cPos) {
-		Chunk newChunk = new Chunk(cPos, Generator);
-		if (_chunkCache.ContainsKey(cPos)) {
-			newChunk.Grid = (Tile[,])_chunkCache[cPos].Clone();
-		}
-		else {
-			for (int x = 0; x < Chunk.Size; x++) {
-				int worldX = cPos.X * Chunk.Size + x;
-				int surfaceY = Generator.GetSurfaceHeight(worldX);
-				for (int y = 0; y < Chunk.Size; y++) {
-					int worldY = cPos.Y * Chunk.Size + y;
-					Tile genTile = Generator.GenerateTile(worldX, worldY, surfaceY);
-					newChunk.Grid[x, y] = genTile;
-					if (genTile.HasBackground && worldY > surfaceY) {
-						SetBackgroundTile(worldX, worldY, 1);
-					}
-					if (genTile.Type != TileType.STATIC && genTile.Type != TileType.AIR) {
-						newChunk.ActiveTiles.Add(new Vector2I(x, y));
-					}
-					if (genTile.TileID == earthTileID && worldY <= surfaceY + 2) {
-						if (Generator.GenerateTile(worldX, worldY - 1, surfaceY).Type == TileType.AIR) {
-							newChunk.OvergrowableTiles.Add(new Vector2I(x, y));
-						}
-					}
-				}
-			}
-		}
+
+		Chunk newChunk = new Chunk();
+		AddChild(newChunk);
+		
+		newChunk.Initialize(cPos, TargetLayer.TileSet, Generator);
+		
 		_chunks.Add(cPos, newChunk);
-		DrawChunk(newChunk);
 	}
 
 	public void UnloadFarChunks(Vector2 worldPos) {
@@ -134,10 +111,8 @@ public partial class PhysicsHandler : Node
 				toRemove.Add(cPos);
 			}
 		}
-
 		foreach (var cPos in toRemove) {
 			_chunkCache[cPos] = (Tile[,])_chunks[cPos].Grid.Clone();
-			// Zellen in TileMap löschen
 			for (int x = 0; x < Chunk.Size; x++) {
 				for (int y = 0; y < Chunk.Size; y++) {
 					TargetLayer.SetCell(new Vector2I(cPos.X * Chunk.Size + x, cPos.Y * Chunk.Size + y), -1);
@@ -150,149 +125,100 @@ public partial class PhysicsHandler : Node
 	/* ################## TILES ################## */
 
 	public int GetTile(int x, int y) {
-		if (y >= Generator.MapHeight) return bedrockTileID;
-		if (y < 0) return airTileID;
+		if (y >= Generator.MapHeight) return 12; // Bedrock ID
+		if (y < 0) return AirID;
+		
 		Vector2I cPos = WorldToChunkPos(x, y);
-		if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return airTileID;
-		Vector2I lPos = WorldToLocalPos(x, y);
-		return chunk.Grid[lPos.X, lPos.Y].TileID;
+		if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return AirID;
+		
+		return chunk.Grid[Chunk.ToLocal(x), Chunk.ToLocal(y)].TileID;
 	}
 
-	public void SetTile(int x, int y, int newTileID) {
-		Vector2I cPos = WorldToChunkPos(x, y);
+	public void SetTile(int worldX, int worldY, int newTileID) {
+		Vector2I cPos = WorldToChunkPos(worldX, worldY);
 		if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return;
-		Vector2I lPos = WorldToLocalPos(x, y);
 
-		if (chunk.Grid[lPos.X, lPos.Y].TileID != newTileID) {
-			BiomeParams biome = GetParams(chunk.Biome);
-			int atlasID = biome.AtlasID;
-			int oldID = chunk.Grid[lPos.X, lPos.Y].TileID;
-			TileProperty prop = _getTileData(newTileID);
-			Tile newTile = new Tile((short)newTileID, 10, prop.Type, prop.Viscosity, 0);
+		Vector2I lPos = WorldToLocalPos(worldX, worldY);
+		int oldID = chunk.Grid[lPos.X, lPos.Y].TileID;
+		if (oldID == newTileID) return;
 
-			chunk.Grid[lPos.X, lPos.Y] = newTile;
-			chunk.IsDirty = true;
+		var prop = TileRegistry.Get(newTileID);
+		Tile newTile = new Tile((short) newTileID, (short) prop.MaxHealth, prop.Type, prop.Viscosity, (short) prop.DamageOnContact);
 
-			if (oldID == earthTileID) chunk.OvergrowableTiles.Remove(lPos);
-			if (newTile.Type == TileType.AIR) {
-				SetBackgroundTile(x, y, earthTileID);
-				WakeUpNeighbors(x, y);
-				TryAddOvergrowable(x, y + 1);
-			} else if (newTile.Type == TileType.LIQUID) {
-				chunk.ActiveTiles.Add(lPos);
-			}
-			UpdateTileVisual(new Vector2I(x, y), newTileID, atlasID);
+		chunk.Grid[lPos.X, lPos.Y] = newTile;
+
+		if (oldID == EarthID) chunk.OvergrowableTiles.Remove(lPos);
+	   
+		if (newTile.Type == TileType.LIQUID) chunk.ActiveTiles.Add(lPos);
+
+		int surfaceY = Generator.GetSurfaceHeight(worldX);
+		chunk.DrawTile(lPos.X, lPos.Y, newTile, worldX, worldY, surfaceY, Generator);
+		
+		if (newTile.Type == TileType.AIR) {
+			WakeUpNeighbors(worldX, worldY);
+			TryAddOvergrowable(worldX, worldY + 1); 
 		}
 	}
 
-	private TileProperty _getTileData(int id) {
-		if (TileAtlasData.TilesetData.TryGetValue(id, out Vector2I coords)) {
-			TileType t = TileType.STATIC;
-			if (id == airTileID) t = TileType.AIR;
-			if (id == 3 || id == 4) t = TileType.LIQUID;
-			if (id == bedrockTileID) t = TileType.BEDROCK;
-			
-			return new TileProperty { 
-				Type = t, 
-				AtlasCoords = coords, 
-				AtlasID = 1, 
-				Viscosity = (id == 4) ? 0.2f : 1.0f 
-			};
-		}
-		return new TileProperty { Type = TileType.AIR };
-	}
 
-	private void SetBackgroundTile(int x, int y, int oldTileID) {
-		if (TileAtlasData.BackgroundTileData.TryGetValue(oldTileID, out Vector2I coords)) {
-			Background.SetCell(new Vector2I(x, y), 0, new Vector2I(2, 2));
-		}
-	}
-
-	private void UpdateTileVisual(Vector2I worldPos, int tileID, int atlasID) {
-		if (TileAtlasData.TilesetData.TryGetValue(tileID, out Vector2I coords)) {
-			if (tileID == 0) TargetLayer.SetCell(worldPos, -1);
-			else TargetLayer.SetCell(worldPos, atlasID, coords);
-		}
-	}
 
 	/* ################## SIMULATION ################## */
 
 	public void SimulateStep() {
-		int tilesProcessed = 0;
 		foreach (var chunk in _chunks.Values) {
-			if (chunk.ActiveTiles.Count == 0) continue;
-			_activeBuffer.Clear();
-			_activeBuffer.AddRange(chunk.ActiveTiles);
-			chunk.ActiveTiles.Clear();
-
-			foreach (var localPos in _activeBuffer) {
-				if (tilesProcessed >= maxTilesPerTick) {
-					chunk.ActiveTiles.Add(localPos);
-					continue;
-				}
-				Tile currentTile = chunk.Grid[localPos.X, localPos.Y];
-				if (currentTile.Type == TileType.LIQUID) {
-					SimulateLiquid(chunk, localPos, currentTile);
-					tilesProcessed++;
-				}
-			}
+			chunk.Tick(this);
 		}
 	}
 
-	private void SimulateLiquid(Chunk chunk, Vector2I localPos, Tile tile) {
-		int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
-		int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
-		if (GetTile(worldX, worldY + 1) == airTileID) {
-			SetTile(worldX, worldY, airTileID);
-			SetTile(worldX, worldY + 1, tile.TileID);
-		} else {
-			int sideDir = _rng.Next(2) == 0 ? 1 : -1;
-			if (GetTile(worldX + sideDir, worldY) == airTileID) {
-				SetTile(worldX, worldY, airTileID);
-				SetTile(worldX + sideDir, worldY, tile.TileID);
-			}
-		}
-	}
+	public void SimulateLiquid(Chunk chunk, Vector2I localPos, Tile tile) {
+			int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
+			int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
 
-	private void SimulateVegetation() {
-		foreach (var chunk in _chunks.Values) {
-			if (chunk.OvergrowableTiles.Count == 0) continue;
-			_vegetationBuffer.Clear();
-			int count = 0;
-			foreach (var pos in chunk.OvergrowableTiles) {
-				if (count++ >= VegetationLimit) break;
-				_vegetationBuffer.Add(pos);
-			}
-			foreach (var localPos in _vegetationBuffer) {
-				int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
-				int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
-				if (_getTileData(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
-					if (_rng.Next(overgrowChance) == 0) {
-						SetTile(worldX, worldY, grassTileID);
-						chunk.OvergrowableTiles.Remove(localPos);
-					}
+			if (GetTile(worldX, worldY + 1) == AirID) {
+				SetTile(worldX, worldY, AirID);
+				SetTile(worldX, worldY + 1, tile.TileID);
+			} else {
+				int sideDir = _rng.Next(2) == 0 ? 1 : -1;
+				if (GetTile(worldX + sideDir, worldY) == AirID) {
+					SetTile(worldX, worldY, AirID);
+					SetTile(worldX + sideDir, worldY, tile.TileID);
 				}
 			}
 		}
+
+private void SimulateVegetation() {
+	foreach (var chunk in _chunks.Values) {
+		if (chunk.OvergrowableTiles.Count == 0) continue;
+
+		_vegetationBuffer.Clear();
+		int count = 0;
+		
+		foreach (var pos in chunk.OvergrowableTiles) {
+			if (count++ >= VegetationLimit) break;
+			_vegetationBuffer.Add(pos);
+		}
+		foreach (var localPos in _vegetationBuffer) {
+			int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
+			int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
+
+			if (TileRegistry.Get(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
+				if (_rng.Next(overgrowChance) == 0) {
+					// ID 2 ist Gras aktuell
+					SetTile(worldX, worldY, 2); 
+				}
+			} else {
+
+				chunk.OvergrowableTiles.Remove(localPos);
+			}
+		}
 	}
+}
 
 	/* ################## HELPERS ################## */
 	private Vector2I WorldToChunkPos(int x, int y) => new Vector2I(Mathf.FloorToInt((float)x / Chunk.Size), Mathf.FloorToInt((float)y / Chunk.Size));
 	private Vector2I WorldToLocalPos(int x, int y) => new Vector2I((x % Chunk.Size + Chunk.Size) % Chunk.Size, (y % Chunk.Size + Chunk.Size) % Chunk.Size);
 
-	private void DrawChunk(Chunk chunk) {
-		BiomeParams biome = GetParams(chunk.Biome);
-		int atlasID = biome.AtlasID;
-		for (int x = 0; x < Chunk.Size; x++) {
-			for (int y = 0; y < Chunk.Size; y++) {
-				Tile tile = chunk.Grid[x, y];
-				if (tile.Type != TileType.AIR) {
-					Vector2I worldPos = new Vector2I(chunk.ChunkPos.X * Chunk.Size + x, chunk.ChunkPos.Y * Chunk.Size + y);
-					UpdateTileVisual(worldPos, tile.TileID, atlasID);
-				}
-			}
-		}
-	}
+
 
 	private void WakeUpNeighbors(int x, int y) {
 		ActivateTile(x + 1, y); ActivateTile(x - 1, y);
@@ -306,11 +232,13 @@ public partial class PhysicsHandler : Node
 			if (chunk.Grid[lPos.X, lPos.Y].Type == TileType.LIQUID) chunk.ActiveTiles.Add(lPos);
 		}
 	}
-
 	private void TryAddOvergrowable(int x, int y) {
-		if (GetTile(x, y) == earthTileID) {
+		if (GetTile(x, y) == EarthID) {
 			Vector2I cPos = WorldToChunkPos(x, y);
-			if (_chunks.TryGetValue(cPos, out Chunk chunk)) chunk.OvergrowableTiles.Add(WorldToLocalPos(x, y));
+			if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
+				Vector2I lPos = WorldToLocalPos(x, y);
+				chunk.OvergrowableTiles.Add(lPos);
+			}
 		}
 	}
 }

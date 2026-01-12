@@ -29,7 +29,7 @@ public partial class WorldGenerator : Node
 	
 	public void SetupNoise(int mapSeed, float noiseFrequency) {
 		_tempNoise.Seed = mapSeed;
-		_tempNoise.Frequency = 0.0005f;
+		_tempNoise.Frequency = 0.005f;
 		_moistureNoise.Seed = mapSeed + 123;
 		_moistureNoise.Frequency = 0.0005f;
 
@@ -90,13 +90,12 @@ public partial class WorldGenerator : Node
 		float warpedX = x + boundaryWarp;
 		float depthWarp = _noise.GetNoise2D(x * 0.1f, y * 0.1f) * 10.0f;
 		if (y + depthWarp > MapHeight * 0.8f) return Biome.LAVA;
-		if (Math.Abs(warpedX) < StartingAreaSize) return Biome.FOREST;
 		float temp = _tempNoise.GetNoise2D(x, y * 0.25f);
 		float moisture = _moistureNoise.GetNoise2D(x, y * 0.25f);
 		if (temp > 0.2f) {
-			return moisture > 0.0f ? Biome.FOREST : Biome.DESERT;
+			return moisture > 0.05f ? Biome.FOREST : Biome.DESERT;
 		} else {
-			return moisture > 0.0f ? Biome.TUNDRA : Biome.ICE;
+			return moisture > 0.05f ? Biome.TUNDRA : Biome.ICE;
 		}
 	}
 
@@ -206,12 +205,6 @@ public partial class WorldGenerator : Node
 	
 	public Tile GenerateTile(int x, int y, int surfaceY) {
 		Tile generatedTile = new Tile();
-		
-		if (y < surfaceY) {
-			generatedTile.Type = TileType.AIR;
-			generatedTile.TileID = 0;
-			return generatedTile;
-		}
 		BiomeData.Biome biomeType = GetBiomeAt(x, y);
 		var bParams = BiomeData.GetParams(biomeType);
 		TileContext ctx = new TileContext {
@@ -220,6 +213,12 @@ public partial class WorldGenerator : Node
 			Biome = biomeType,
 			BiomeParams = bParams
 		};
+		if (y < surfaceY) {
+			generatedTile.Type = TileType.AIR;
+			generatedTile.TileID = 0;
+			return generatedTile;
+		}
+		
 
 		int bedrockLayer = MapHeight - 5;
 		if (y >= bedrockLayer) {
