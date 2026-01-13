@@ -202,8 +202,10 @@ private void SimulateVegetation() {
 		int count = 0;
 		
 		foreach (var pos in chunk.OvergrowableTiles) {
-			if (count++ >= VegetationLimit) break;
-			_vegetationBuffer.Add(pos);
+			if (count++ >= VegetationLimit){
+				_vegetationBuffer.Add(pos);
+				break;
+			} 
 		}
 		foreach (var localPos in _vegetationBuffer) {
 			int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
