@@ -1,6 +1,9 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+using System.Threading;
 using static GlobalConstants;
 using static BiomeData;
 public partial class PhysicsHandler : Node
@@ -10,6 +13,7 @@ public partial class PhysicsHandler : Node
 	[Export] public TileMapLayer Background;
 	[Export] public double TickRate = 0.5;
 	[Export] public int SimulationRadius = 5;
+	[Export] public int MaxUpdatesPerFrame = 2000;
 	[Export] public int UnloadRadius = 10;
 	[Export] public int VegetationLimit = 8;
 	[Export] public double OvergrowRate = 10;
@@ -17,7 +21,6 @@ public partial class PhysicsHandler : Node
 	private const int AirID = 0;
 	private const int EarthID = 1;
 	
-	private System.Random _rng = new System.Random();
 	private double _timer = 0;
 	private double _overgrowTimer = 0;
 	private double _cleanupTimer = 0;
@@ -25,41 +28,89 @@ public partial class PhysicsHandler : Node
 	
 	private const int overgrowChance = 10;
 	
-
+	private bool _isGenerating = false;
+	private bool _isVegetating = false;
+	private bool _isSimulating = false;
+	private bool _isCleaningUp = false;
+	
+	private CancellationTokenSource _cts = new CancellationTokenSource();
+	
 	private List<Vector2I> _activeBuffer = new List<Vector2I>();
 	private List<Vector2I> _vegetationBuffer = new List<Vector2I>();
-	private Dictionary<Vector2I, Chunk> _chunks = new Dictionary<Vector2I, Chunk>();
-	private Dictionary<Vector2I, Tile[,]> _chunkCache = new Dictionary<Vector2I, Tile[,]>();
-
+	private ConcurrentDictionary<Vector2I, Chunk> _chunks = new ConcurrentDictionary<Vector2I, Chunk>();
+	private ConcurrentDictionary<Vector2I, Tile[,]> _chunkCache = new ConcurrentDictionary<Vector2I, Tile[,]>();	
+	
+	private struct TileVisualUpdate {
+		public int WorldX;
+		public int WorldY;
+	}
+	
+	private ConcurrentQueue<TileVisualUpdate> _visualUpdates = new ConcurrentQueue<TileVisualUpdate>();
+	
+	public override void _ExitTree() {
+		_cts.Cancel();        
+		_cts.Dispose();
+	}
+	
 	public override void _Ready() {
 		TileRegistry.LoadAll();
 		if (Generator != null && TargetLayer != null) {
 			UpdateChunksAround(Vector2.Zero);
 		}
+
 	}
 
 	public override void _Process(double delta) {
 		var camera = GetViewport().GetCamera2D();
 		if (camera == null) return;
-		
-		UpdateChunksAround(camera.GlobalPosition);
+		if (_cts.IsCancellationRequested) return;
+		if(!_isGenerating) {
+			_isGenerating = true;
+			Vector2 camPos = camera.GlobalPosition;
+			Task.Run(() => {
+			UpdateChunksAround(camPos);
+			_isGenerating = false;
+				});
+			}
 		
 		_timer += delta;
 		_overgrowTimer += delta;
 		_cleanupTimer += delta;
 
+		_processVisualUpdates();
+		
 		if(_timer >= TickRate) {
-			SimulateStep();
+			if(!_isSimulating){
+				_isSimulating = true;
+				Task.Run(() => {
+				SimulateStep();
+				_isSimulating = false;
+				});	
+			}
 			_timer = 0;
 		}
 
 		if(_overgrowTimer >= OvergrowRate) {
-			SimulateVegetation();
+			if(!_isVegetating) {
+				_isVegetating = true;
+				Task.Run(() => {
+					SimulateVegetation();
+					_isVegetating = false;
+				});
+			}
+			
 			_overgrowTimer = 0;
 		}
 
 		if(_cleanupTimer >= CleanupRate) {
-			UnloadFarChunks(camera.GlobalPosition);
+			if(!_isCleaningUp) {
+				_isCleaningUp = true;
+				Vector2 camPos = camera.GlobalPosition; 
+				Task.Run(() => {
+				UnloadFarChunks(camPos);
+					_isCleaningUp = false;
+				});
+			}
 			_cleanupTimer = 0;
 		}
 	}
@@ -79,6 +130,7 @@ public partial class PhysicsHandler : Node
 		for (int r = 0; r <= SimulationRadius; r++) {
 			for (int x = -r; x <= r; x++) {
 				for (int y = -r; y <= r; y++) {
+					if (_cts.IsCancellationRequested) return;
 					if (Math.Max(Math.Abs(x), Math.Abs(y)) == r) {
 						Vector2I targetCPos = centerChunk + new Vector2I(x, y);
 						if (!_chunks.ContainsKey(targetCPos)) {
@@ -94,18 +146,22 @@ public partial class PhysicsHandler : Node
 
 	private void GenerateChunk(Vector2I cPos) {
 		if (_chunks.ContainsKey(cPos)) return;
-
 		Chunk newChunk = new Chunk();
 		newChunk.Name = $"Chunk_{cPos.X}_{cPos.Y}";
-		AddChild(newChunk);
+
 		
 		if (_chunkCache.TryGetValue(cPos, out Tile[,] cachedGrid)) {
 			newChunk.InitializeFromCache(cPos, TargetLayer.TileSet, cachedGrid, Generator);
 		} else {
 			newChunk.Initialize(cPos, TargetLayer.TileSet, Generator);
 		}
+		if(_chunks.TryAdd(cPos, newChunk)) {
+			CallDeferred(nameof(AddChunkNode), newChunk);		
+		}
+		else {
+			newChunk.QueueFree();
+		}
 		
-		_chunks.Add(cPos, newChunk);
 	}
 
 	public void UnloadFarChunks(Vector2 worldPos) {
@@ -123,13 +179,17 @@ public partial class PhysicsHandler : Node
 			}
 		}
 		foreach (var cPos in toRemove) {
-			Chunk chunkNode = _chunks[cPos];
-			_chunkCache[cPos] = (Tile[,])chunkNode.Grid.Clone();
-			chunkNode.QueueFree();
-			_chunks.Remove(cPos);
+			if (_chunks.TryRemove(cPos, out Chunk chunkNode)) {
+				_chunkCache[cPos] = (Tile[,])chunkNode.Grid.Clone();
+				chunkNode.CallDeferred(Node.MethodName.QueueFree);
+			}
 		}
 	}
-
+	
+	// 
+	private void AddChunkNode(Chunk newChunk) {
+		AddChild(newChunk);	
+	}
 	/* ################## TILES ################## */
 
 	public int GetTile(int x, int y) {
@@ -147,33 +207,51 @@ public partial class PhysicsHandler : Node
 		if (!_chunks.TryGetValue(cPos, out Chunk chunk)) return;
 
 		Vector2I lPos = WorldToLocalPos(worldX, worldY);
-		int oldID = chunk.Grid[lPos.X, lPos.Y].TileID;
-		if (oldID == newTileID) return;
-
-		var prop = TileRegistry.Get(newTileID);
-		Tile newTile = new Tile((short) newTileID, (short) prop.MaxHealth, prop.Type, prop.Viscosity, (short) prop.DamageOnContact);
-
-		chunk.Grid[lPos.X, lPos.Y] = newTile;
-
-		if (oldID == EarthID) chunk.OvergrowableTiles.Remove(lPos);
-	   
-		if (newTile.Type == TileType.LIQUID) chunk.ActiveTiles.Add(lPos);
-
-		int surfaceY = Generator.GetSurfaceHeight(worldX);
-		chunk.DrawTile(lPos.X, lPos.Y, newTile, worldX, worldY, surfaceY, Generator);
 		
-		if (newTile.Type == TileType.AIR) {
-			WakeUpNeighbors(worldX, worldY);
-			TryAddOvergrowable(worldX, worldY + 1); 
+		lock (chunk) {
+			int oldID = chunk.Grid[lPos.X, lPos.Y].TileID;
+			if (oldID == newTileID) return;
+
+			var prop = TileRegistry.Get(newTileID);
+			Tile newTile = new Tile((short) newTileID, (short) prop.MaxHealth, prop.Type, prop.Viscosity, (short) prop.DamageOnContact);
+
+			chunk.Grid[lPos.X, lPos.Y] = newTile;
+
+			if (oldID == EarthID) chunk.OvergrowableTiles.Remove(lPos);
+			if (newTile.Type == TileType.LIQUID) chunk.ActiveTiles.Add(lPos);
+
+			int surfaceY = Generator.GetSurfaceHeight(worldX);
+			
+			if (newTile.Type == TileType.AIR) {
+				WakeUpNeighbors(worldX, worldY);
+				TryAddOvergrowable(worldX, worldY + 1); 
+			}
 		}
+		_visualUpdates.Enqueue(new TileVisualUpdate { WorldX = worldX, WorldY = worldY });
 	}
 
+	private void _processVisualUpdates() {
+		int processed = 0;
+		while(processed < MaxUpdatesPerFrame && _visualUpdates.TryDequeue(out TileVisualUpdate update)) {
+			Vector2I cPos = WorldToChunkPos(update.WorldX, update.WorldY);
+			if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
+				Vector2I lPos = WorldToLocalPos(update.WorldX, update.WorldY);
+				
+				Tile currentTile = chunk.Grid[lPos.X, lPos.Y];
+				int surfaceY = Generator.GetSurfaceHeight(update.WorldX);
+				
+				chunk.DrawTile(lPos.X, lPos.Y, currentTile, update.WorldX, update.WorldY, surfaceY, Generator);
+			}
+			processed++;
+		}
+	}
 
 
 	/* ################## SIMULATION ################## */
 
 	public void SimulateStep() {
 		foreach (var chunk in _chunks.Values) {
+			if (_cts.IsCancellationRequested) return;
 			chunk.Tick(this);
 		}
 	}
@@ -186,7 +264,7 @@ public partial class PhysicsHandler : Node
 				SetTile(worldX, worldY, AirID);
 				SetTile(worldX, worldY + 1, tile.TileID);
 			} else {
-				int sideDir = _rng.Next(2) == 0 ? 1 : -1;
+				int sideDir = Random.Shared.Next(2) == 0 ? 1 : -1;
 				if (GetTile(worldX + sideDir, worldY) == AirID) {
 					SetTile(worldX, worldY, AirID);
 					SetTile(worldX + sideDir, worldY, tile.TileID);
@@ -195,7 +273,8 @@ public partial class PhysicsHandler : Node
 		}
 
 private void SimulateVegetation() {
-	foreach (var chunk in _chunks.Values) {
+	foreach (var chunk in _chunks.Values) {		
+		if (_cts.IsCancellationRequested) return;
 		if (chunk.OvergrowableTiles.Count == 0) continue;
 
 		_vegetationBuffer.Clear();
@@ -212,7 +291,7 @@ private void SimulateVegetation() {
 			int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
 
 			if (TileRegistry.Get(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
-				if (_rng.Next(overgrowChance) == 0) {
+				if (Random.Shared.Next(overgrowChance) == 0) {
 					// ID 2 ist Gras aktuell
 					SetTile(worldX, worldY, 2); 
 				}
