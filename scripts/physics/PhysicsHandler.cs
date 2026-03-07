@@ -61,9 +61,11 @@ public partial class PhysicsHandler : Node
 	}
 
 	public override void _Process(double delta) {
+		
 		var camera = GetViewport().GetCamera2D();
 		if (camera == null) return;
 		if (_cts.IsCancellationRequested) return;
+		
 		if(!_isGenerating) {
 			_isGenerating = true;
 			Vector2 camPos = camera.GlobalPosition;
@@ -98,7 +100,6 @@ public partial class PhysicsHandler : Node
 					_isVegetating = false;
 				});
 			}
-			
 			_overgrowTimer = 0;
 		}
 
@@ -124,7 +125,7 @@ public partial class PhysicsHandler : Node
 			Mathf.FloorToInt(worldPos.Y / chunkSizePx)
 		);
 
-		int maxGensThisFrame = 50; 
+		int maxGensThisFrame = 100; 
 		int currentGens = 0;
 
 		for (int r = 0; r <= SimulationRadius; r++) {
@@ -186,10 +187,8 @@ public partial class PhysicsHandler : Node
 		}
 	}
 	
-	// 
-	private void AddChunkNode(Chunk newChunk) {
-		AddChild(newChunk);	
-	}
+	
+
 	/* ################## TILES ################## */
 
 	public int GetTile(int x, int y) {
@@ -230,23 +229,6 @@ public partial class PhysicsHandler : Node
 		_visualUpdates.Enqueue(new TileVisualUpdate { WorldX = worldX, WorldY = worldY });
 	}
 
-	private void _processVisualUpdates() {
-		int processed = 0;
-		while(processed < MaxUpdatesPerFrame && _visualUpdates.TryDequeue(out TileVisualUpdate update)) {
-			Vector2I cPos = WorldToChunkPos(update.WorldX, update.WorldY);
-			if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
-				Vector2I lPos = WorldToLocalPos(update.WorldX, update.WorldY);
-				
-				Tile currentTile = chunk.Grid[lPos.X, lPos.Y];
-				int surfaceY = Generator.GetSurfaceHeight(update.WorldX);
-				
-				chunk.DrawTile(lPos.X, lPos.Y, currentTile, update.WorldX, update.WorldY, surfaceY, Generator);
-			}
-			processed++;
-		}
-	}
-
-
 	/* ################## SIMULATION ################## */
 
 	public void SimulateStep() {
@@ -272,42 +254,39 @@ public partial class PhysicsHandler : Node
 			}
 		}
 
-private void SimulateVegetation() {
-	foreach (var chunk in _chunks.Values) {		
-		if (_cts.IsCancellationRequested) return;
-		if (chunk.OvergrowableTiles.Count == 0) continue;
+	private void SimulateVegetation() {
+		foreach (var chunk in _chunks.Values) {		
+			if (_cts.IsCancellationRequested) return;
+			if (chunk.OvergrowableTiles.Count == 0) continue;
 
-		_vegetationBuffer.Clear();
-		int count = 0;
-		
-		foreach (var pos in chunk.OvergrowableTiles) {
-			if (count++ >= VegetationLimit){
-				_vegetationBuffer.Add(pos);
-				break;
-			} 
-		}
-		foreach (var localPos in _vegetationBuffer) {
-			int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
-			int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
+			_vegetationBuffer.Clear();
+			int count = 0;
+			
+			foreach (var pos in chunk.OvergrowableTiles) {
+				if (count++ >= VegetationLimit){
+					_vegetationBuffer.Add(pos);
+					break;
+				} 
+			}
+			foreach (var localPos in _vegetationBuffer) {
+				int worldX = chunk.ChunkPos.X * Chunk.Size + localPos.X;
+				int worldY = chunk.ChunkPos.Y * Chunk.Size + localPos.Y;
 
-			if (TileRegistry.Get(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
-				if (Random.Shared.Next(overgrowChance) == 0) {
-					// ID 2 ist Gras aktuell
-					SetTile(worldX, worldY, 2); 
+				if (TileRegistry.Get(GetTile(worldX, worldY - 1)).Type == TileType.AIR) {
+					if (Random.Shared.Next(overgrowChance) == 0) {
+						// ID 2 ist Gras aktuell
+						SetTile(worldX, worldY, 2); 
+					}
+				} else {
+					chunk.OvergrowableTiles.Remove(localPos);
 				}
-			} else {
-
-				chunk.OvergrowableTiles.Remove(localPos);
 			}
 		}
 	}
-}
 
 	/* ################## HELPERS ################## */
 	private Vector2I WorldToChunkPos(int x, int y) => new Vector2I(Mathf.FloorToInt((float)x / Chunk.Size), Mathf.FloorToInt((float)y / Chunk.Size));
 	private Vector2I WorldToLocalPos(int x, int y) => new Vector2I((x % Chunk.Size + Chunk.Size) % Chunk.Size, (y % Chunk.Size + Chunk.Size) % Chunk.Size);
-
-
 
 	private void WakeUpNeighbors(int x, int y) {
 		ActivateTile(x + 1, y); ActivateTile(x - 1, y);
@@ -330,4 +309,29 @@ private void SimulateVegetation() {
 			}
 		}
 	}
+
+	/* ################## VISUALS & GODOT SPECIFIC ################## */
+	// used for multithreading because this one needs to be on main thread
+	// updates all tiles once per _process-step
+	private void _processVisualUpdates() {
+		int processed = 0;
+		while(processed < MaxUpdatesPerFrame && _visualUpdates.TryDequeue(out TileVisualUpdate update)) {
+			Vector2I cPos = WorldToChunkPos(update.WorldX, update.WorldY);
+			if (_chunks.TryGetValue(cPos, out Chunk chunk)) {
+				Vector2I lPos = WorldToLocalPos(update.WorldX, update.WorldY);
+				
+				Tile currentTile = chunk.Grid[lPos.X, lPos.Y];
+				int surfaceY = Generator.GetSurfaceHeight(update.WorldX);
+				
+				chunk.DrawTile(lPos.X, lPos.Y, currentTile, update.WorldX, update.WorldY, surfaceY, Generator);
+			}
+			processed++;
+		}
+	}
+	
+	// used for multithreading because this one needs to be on main thread
+	private void AddChunkNode(Chunk newChunk) {
+		AddChild(newChunk);	
+	}	
+	
 }
